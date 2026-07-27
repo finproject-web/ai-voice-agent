@@ -1,0 +1,448 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Multi-tenancy: Tenant model
+model Tenant {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  domain      String?  @unique
+  logo        String?
+  plan        Plan     @default(FREE)
+  status      TenantStatus @default(ACTIVE)
+  settings    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users       User[]
+  leads       Lead[]
+  campaigns   Campaign[]
+  calls       Call[]
+  conversations Conversation[]
+  analytics   Analytics[]
+  agents      Agent[]
+
+  @@index([slug])
+  @@index([domain])
+}
+
+enum Plan {
+  FREE
+  STARTER
+  PROFESSIONAL
+  ENTERPRISE
+}
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+  CANCELLED
+  PENDING
+}
+
+// User model with authentication
+model User {
+  id                String   @id @default(uuid())
+  tenantId          String
+  email             String   @unique
+  password          String
+  firstName         String
+  lastName          String
+  role              UserRole @default(AGENT)
+  status            UserStatus @default(ACTIVE)
+  avatar            String?
+  phone             String?
+  lastLoginAt       DateTime?
+  emailVerifiedAt   DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  tenant            Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  refreshTokens     RefreshToken[]
+  createdCampaigns  Campaign[] @relation("CampaignCreator")
+  assignedCalls     Call[] @relation("CallAssignee")
+  createdAgents    Agent[] @relation("AgentCreator")
+  assignedLeads     Lead[] @relation("LeadAssignee")
+
+  @@index([email])
+  @@index([tenantId])
+  @@unique([tenantId, email])
+}
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  AGENT
+  VIEWER
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  PENDING
+}
+
+// Refresh tokens for JWT rotation
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  revokedAt DateTime?
+  replacedBy String?
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([userId])
+}
+
+// Lead model
+model Lead {
+  id              String   @id @default(uuid())
+  tenantId        String
+  firstName       String
+  lastName        String
+  email           String?
+  phone           String
+  company         String?
+  title           String?
+  industry        String?
+  status          LeadStatus @default(NEW)
+  source          String?
+  score           Int      @default(0)
+  tags            String[]
+  customFields    Json?
+  notes           String?
+  assignedToId    String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  assignedTo      User?    @relation("LeadAssignee", fields: [assignedToId], references: [id])
+  campaignLeads   CampaignLead[]
+  calls           Call[]
+
+  @@index([tenantId])
+  @@index([status])
+  @@index([phone])
+  @@index([email])
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  PROPOSAL
+  NEGOTIATION
+  CLOSED_WON
+  CLOSED_LOST
+  DO_NOT_CONTACT
+}
+
+// Campaign model
+model Campaign {
+  id              String   @id @default(uuid())
+  tenantId        String
+  name            String
+  description     String?
+  status          CampaignStatus @default(DRAFT)
+  type            CampaignType @default(OUTBOUND)
+  script          String?  @db.Text
+  voiceAgentId    String?
+  schedule        Json?
+  settings        Json?
+  priority        Int      @default(0)
+  startDate       DateTime?
+  endDate         DateTime?
+  createdById     String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy       User     @relation("CampaignCreator", fields: [createdById], references: [id])
+  campaignLeads   CampaignLead[]
+
+  @@index([tenantId])
+  @@index([status])
+}
+
+enum CampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+enum CampaignType {
+  OUTBOUND
+  INBOUND
+  BLENDED
+}
+
+// Campaign-Lead relationship
+model CampaignLead {
+  id          String   @id @default(uuid())
+  campaignId  String
+  leadId      String
+  status      CampaignLeadStatus @default(PENDING)
+  callCount   Int      @default(0)
+  lastCallAt  DateTime?
+  nextCallAt  DateTime?
+  result      String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  campaign    Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  lead        Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, leadId])
+  @@index([campaignId])
+  @@index([leadId])
+}
+
+enum CampaignLeadStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  SKIPPED
+  FAILED
+}
+
+// Call model
+model Call {
+  id              String   @id @default(uuid())
+  tenantId        String
+  leadId          String
+  campaignId      String?
+  assignedToId    String?
+  direction       CallDirection @default(OUTBOUND)
+  status          CallStatus @default(QUEUED)
+  duration        Int?     // in seconds
+  recordingUrl    String?
+  transcription   String?  @db.Text
+  summary         String?  @db.Text
+  sentiment       String?
+  outcome         String?
+  notes           String?  @db.Text
+  metadata        Json?
+  startedAt       DateTime?
+  endedAt         DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lead            Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  assignedTo      User?    @relation("CallAssignee", fields: [assignedToId], references: [id])
+  conversation    Conversation?
+
+  @@index([tenantId])
+  @@index([leadId])
+  @@index([campaignId])
+  @@index([status])
+  @@index([startedAt])
+}
+
+enum CallDirection {
+  OUTBOUND
+  INBOUND
+}
+
+enum CallStatus {
+  QUEUED
+  RINGING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  CANCELLED
+  NO_ANSWER
+  BUSY
+  VOICEMAIL
+}
+
+// Conversation model
+model Conversation {
+  id          String   @id @default(uuid())
+  tenantId    String
+  callId      String   @unique
+  messages    Json[]
+  analysis    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  call        Call     @relation(fields: [callId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([callId])
+}
+
+// Analytics model
+model Analytics {
+  id          String   @id @default(uuid())
+  tenantId    String
+  date        DateTime @default(now())
+  metric      String
+  value       Float
+  dimensions  Json?
+  createdAt   DateTime @default(now())
+
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, date, metric, dimensions])
+  @@index([tenantId])
+  @@index([date])
+  @@index([metric])
+}
+
+// Agent model for AI voice agents
+model Agent {
+  id          String   @id @default(uuid())
+  tenantId    String
+  name        String
+  description String?
+  version     Int      @default(1)
+  status      AgentStatus @default(INACTIVE)
+  config      Json
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy   User     @relation("AgentCreator", fields: [createdById], references: [id])
+  memories    AgentMemory[]
+
+  @@index([tenantId])
+  @@index([status])
+}
+
+enum AgentStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+// Agent memory for conversation context
+model AgentMemory {
+  id                  String   @id @default(uuid())
+  agentId             String
+  callId              String   @unique
+  customerName        String
+  phone               String
+  email               String?
+  currentStage        String
+  interestLevel       String
+  objections          String[]
+  customFields        Json?
+  previousCalls       String[]
+  conversationSummary String?  @db.Text
+  updatedAt           DateTime @updatedAt
+
+  agent               Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([agentId])
+  @@index([callId])
+}
+
+// Audit log for enterprise compliance
+model AuditLog {
+  id          String   @id @default(uuid())
+  tenantId    String
+  userId      String?
+  action      String
+  entityType String
+  entityId    String
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([action])
+  @@index([entityType])
+  @@index([createdAt])
+}
+
+// API Key storage for external integrations
+model ApiKey {
+  id          String   @id @default(uuid())
+  tenantId    String
+  provider    String
+  encryptedKey String
+  status      ApiKeyStatus @default(ACTIVE)
+  version     Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([provider])
+  @@index([status])
+}
+
+enum ApiKeyStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+}
+
+// Webhook event storage
+model WebhookEvent {
+  id          String   @id @default(uuid())
+  provider    String
+  eventType   String
+  payload     Json
+  processed   Boolean  @default(false)
+  processedAt DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([provider])
+  @@index([eventType])
+  @@index([processed])
+  @@index([createdAt])
+}
+
+// Feature flags for tenant
+model FeatureFlag {
+  id          String   @id @default(uuid())
+  tenantId    String
+  feature     String
+  enabled     Boolean  @default(false)
+  config      Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([tenantId, feature])
+  @@index([tenantId])
+  @@index([feature])
+}
+
+// Knowledge base documents
+model KnowledgeBase {
+  id          String   @id @default(uuid())
+  tenantId    String
+  agentId     String?
+  title       String
+  type        String
+  content     String   @db.Text
+  url         String?
+  status      String   @default("ACTIVE")
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([agentId])
+  @@index([type])
+  @@index([status])
+}
