@@ -191,34 +191,41 @@ export class TelnyxController {
 
   async initiateCall(req: Request, res: Response): Promise<void> {
     try {
-      const { phoneNumber, sessionId } = req.body;
+      const { phoneNumber, sessionId, customerContext: providedCustomerContext } = req.body;
 
       if (!phoneNumber || !sessionId) {
         res.status(400).json({ error: 'Phone number and session ID required' });
         return;
       }
 
-      logger.info('Initiating call', { phoneNumber, sessionId });
+      logger.info('Initiating call', { phoneNumber, sessionId, hasProvidedContext: !!providedCustomerContext });
 
-      // Fetch customer data from Google Sheets by phone number
-      let customerContext: { name?: string; email?: string; phone?: string } = { phone: phoneNumber };
+      // Start with manually provided context, then merge Google Sheets lead data
+      let customerContext: any = {
+        phone: phoneNumber,
+        ...(providedCustomerContext || {}),
+        leadData: providedCustomerContext?.leadData || {},
+      };
+
       try {
         const leadData = await googleSheetsService.findLeadByPhone(phoneNumber);
         if (leadData) {
           customerContext = {
-            name: (leadData.name as string) || undefined,
-            email: (leadData.email as string) || undefined,
-            phone: phoneNumber,
+            ...customerContext,
+            name: (leadData.name as string) || customerContext.name,
+            email: (leadData.email as string) || customerContext.email,
+            leadId: (leadData.lead_id as string) || phoneNumber,
+            leadData: { ...leadData, ...customerContext.leadData },
           };
           logger.info('=== CUSTOMER DATA FROM GOOGLE SHEETS ===', { customerContext });
         } else {
           logger.info('No lead found in Google Sheets for phone', { phoneNumber });
         }
       } catch (sheetError) {
-        logger.warn('Google Sheets lookup failed, continuing without customer data', { error: sheetError });
+        logger.warn('Google Sheets lookup failed, using provided or default customer context', { error: sheetError });
       }
       
-      await voiceAgentService.initializeAgent({ sessionId, phoneNumber }, customerContext);
+      await voiceAgentService.initializeAgent({ sessionId, phoneNumber, leadId: customerContext.leadId }, customerContext);
       const callId = await voiceAgentService.makeCall(phoneNumber, sessionId);
 
       res.status(200).json({ success: true, callId, sessionId });

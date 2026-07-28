@@ -13,6 +13,7 @@ export interface CustomerContext {
   email?: string;
   phone?: string;
   leadId?: string;
+  leadData?: Record<string, any>;
 }
 
 export interface VoiceAgentState {
@@ -23,6 +24,8 @@ export interface VoiceAgentState {
   callId?: string;
   customerContext?: CustomerContext;
   greetingSent?: boolean;
+  greetingAudioBuffer?: Buffer;
+  greetingAudioPromise?: Promise<Buffer>;
 }
 
 export interface AudioStream {

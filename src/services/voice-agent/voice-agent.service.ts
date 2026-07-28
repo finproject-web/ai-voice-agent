@@ -4,7 +4,7 @@ import { ITTSProvider } from '../../providers/tts/provider.interface';
 import { createTTSProvider } from '../../providers/tts/tts.factory';
 import { ConversationEngine } from '../conversation-engine/conversation-engine.service';
 import { MemoryService } from '../memory/memory.service';
-import { VoiceAgentConfig, VoiceAgentState } from './types';
+import { VoiceAgentConfig, VoiceAgentState, CustomerContext } from './types';
 import { FunctionCall } from '../conversation-engine/types';
 import googleSheetsService from '../google-sheets/google-sheets.service';
 import emailService from '../email/email.service';
@@ -28,7 +28,7 @@ export class VoiceAgentService {
     this.agents = new Map();
   }
 
-  async initializeAgent(config: VoiceAgentConfig, customerContext?: { name?: string; email?: string; phone?: string; leadId?: string }): Promise<VoiceAgentState> {
+  async initializeAgent(config: VoiceAgentConfig, customerContext?: CustomerContext): Promise<VoiceAgentState> {
     // Create conversation context with customer data
     await this.conversationEngine.createContext(config.sessionId, {
       leadId: config.leadId,
@@ -36,6 +36,7 @@ export class VoiceAgentService {
       customerName: customerContext?.name,
       customerEmail: customerContext?.email,
       customerPhone: customerContext?.phone,
+      extractedData: customerContext?.leadData || {},
     });
 
     // Create memory with customer data
@@ -195,6 +196,19 @@ export class VoiceAgentService {
     return result;
   }
 
+  private async generateGreetingAudio(sessionId: string): Promise<Buffer> {
+    try {
+      const greetingResponse = await this.conversationEngine.processMessage(sessionId, '');
+      logger.info('=== GREETING AI TEXT ===', { sessionId, text: greetingResponse.content });
+      const ttsAudio = await this.ttsProvider.synthesize(greetingResponse.content);
+      logger.info('=== GREETING TTS AUDIO ===', { sessionId, audioSize: ttsAudio.audioBuffer.length });
+      return ttsAudio.audioBuffer;
+    } catch (error: any) {
+      logger.error('=== GREETING GENERATION FAILED ===', { sessionId, error: error?.message || error });
+      throw error;
+    }
+  }
+
   async makeCall(phoneNumber: string, sessionId: string): Promise<string> {
     try {
       // Use NGROK_URL as webhook URL for outbound calls
@@ -210,6 +224,17 @@ export class VoiceAgentService {
       const agentState = this.agents.get(sessionId);
       if (agentState) {
         agentState.callId = callResult.callId;
+        // Pre-generate greeting audio while the call is connecting
+        agentState.greetingAudioPromise = this.generateGreetingAudio(sessionId)
+          .then((audioBuffer) => {
+            agentState.greetingAudioBuffer = audioBuffer;
+            this.agents.set(sessionId, agentState);
+            return audioBuffer;
+          })
+          .catch((error) => {
+            logger.error('Pre-generation of greeting audio failed', { sessionId, error });
+            throw error;
+          });
         this.agents.set(sessionId, agentState);
       }
 
@@ -445,22 +470,20 @@ export class VoiceAgentService {
             agentState.greetingSent = true;
             this.agents.set(sessionId, agentState);
             
-            logger.info('=== AI GREETING TEXT GENERATION ===', { sessionId, callId });
-            const greeting = await this.conversationEngine.processMessage(sessionId, '');
-            logger.info('=== AI GREETING TEXT ===', { sessionId, callId, greetingText: greeting.content });
+            let audioBuffer: Buffer;
+            if (agentState.greetingAudioBuffer) {
+              audioBuffer = agentState.greetingAudioBuffer;
+              logger.info('=== USING PRE-GENERATED GREETING AUDIO ===', { sessionId, callId, audioSize: audioBuffer.length });
+            } else if (agentState.greetingAudioPromise) {
+              logger.info('=== WAITING FOR PRE-GENERATED GREETING AUDIO ===', { sessionId, callId });
+              audioBuffer = await agentState.greetingAudioPromise;
+            } else {
+              logger.warn('=== GREETING NOT PRE-GENERATED, GENERATING NOW ===', { sessionId, callId });
+              audioBuffer = await this.generateGreetingAudio(sessionId);
+            }
             
-            logger.info('=== TTS REQUEST SENT ===', { sessionId, callId, text: greeting.content });
-            const audioBuffer = await this.ttsProvider.synthesize(greeting.content);
-            logger.info('=== TTS AUDIO RECEIVED ===', { 
-              sessionId, 
-              callId, 
-              audioSize: audioBuffer.audioBuffer.length,
-              sampleRate: '24000Hz',
-              encoding: 'PCM16'
-            });
-            
-            logger.info('=== AUDIO SENT TO TELNYX ===', { sessionId, callId, packetCount: 1 });
-            await telnyxMediaProvider.sendAudio(callId, audioBuffer.audioBuffer);
+            logger.info('=== AUDIO SENT TO TELNYX ===', { sessionId, callId, packetCount: 1, audioSize: audioBuffer.length });
+            await telnyxMediaProvider.sendAudio(callId, audioBuffer);
             logger.info('=== GREETING SENT SUCCESSFULLY ===', { sessionId, callId });
           }
           
@@ -542,7 +565,7 @@ export class VoiceAgentService {
       
       await this.initializeAgent(
         { sessionId, phoneNumber: phoneStr, leadId: leadIdStr }, 
-        { name: nameStr, email: emailStr, phone: phoneStr, leadId: leadIdStr }
+        { name: nameStr, email: emailStr, phone: phoneStr, leadId: leadIdStr, leadData: lead as Record<string, any> }
       );
       
       const callId = await this.makeCall(phoneStr, sessionId);
