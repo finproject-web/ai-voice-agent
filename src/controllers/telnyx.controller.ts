@@ -1,10 +1,12 @@
 import { Request, Response } from 'express';
 import crypto from 'crypto';
 import { VoiceAgentService } from '../services/voice-agent/voice-agent.service';
+import { GoogleSheetsService } from '../services/google-sheets/google-sheets.service';
 import logger from '../config/logger';
 import config from '../config';
 
 const voiceAgentService = new VoiceAgentService();
+const googleSheetsService = new GoogleSheetsService();
 
 export class TelnyxController {
   private validateWebhookSignature(req: Request): boolean {
@@ -197,8 +199,26 @@ export class TelnyxController {
       }
 
       logger.info('Initiating call', { phoneNumber, sessionId });
+
+      // Fetch customer data from Google Sheets by phone number
+      let customerContext: { name?: string; email?: string; phone?: string } = { phone: phoneNumber };
+      try {
+        const leadData = await googleSheetsService.findLeadByPhone(phoneNumber);
+        if (leadData) {
+          customerContext = {
+            name: (leadData.name as string) || undefined,
+            email: (leadData.email as string) || undefined,
+            phone: phoneNumber,
+          };
+          logger.info('=== CUSTOMER DATA FROM GOOGLE SHEETS ===', { customerContext });
+        } else {
+          logger.info('No lead found in Google Sheets for phone', { phoneNumber });
+        }
+      } catch (sheetError) {
+        logger.warn('Google Sheets lookup failed, continuing without customer data', { error: sheetError });
+      }
       
-      await voiceAgentService.initializeAgent({ sessionId, phoneNumber });
+      await voiceAgentService.initializeAgent({ sessionId, phoneNumber }, customerContext);
       const callId = await voiceAgentService.makeCall(phoneNumber, sessionId);
 
       res.status(200).json({ success: true, callId, sessionId });
