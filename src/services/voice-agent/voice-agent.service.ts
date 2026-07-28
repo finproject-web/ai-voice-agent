@@ -5,7 +5,9 @@ import { createTTSProvider } from '../../providers/tts/tts.factory';
 import { ConversationEngine } from '../conversation-engine/conversation-engine.service';
 import { MemoryService } from '../memory/memory.service';
 import { VoiceAgentConfig, VoiceAgentState } from './types';
+import { FunctionCall } from '../conversation-engine/types';
 import googleSheetsService from '../google-sheets/google-sheets.service';
+import emailService from '../email/email.service';
 import logger from '../../config/logger';
 import config from '../../config';
 
@@ -96,8 +98,18 @@ export class VoiceAgentService {
       await this.memoryService.addMessage(sessionId, 'user', transcript);
       await this.memoryService.addMessage(sessionId, 'assistant', aiResponse.content);
 
-      // Step 3: Convert AI response to audio using ElevenLabs
+      // Step 3: Execute any backend tools requested by the AI
+      const toolResult = await this.executeToolCalls(sessionId, aiResponse.functionCalls);
+
+      // Step 4: Convert AI response to audio using TTS provider
       const ttsResult = await this.ttsProvider.synthesize(aiResponse.content);
+
+      // If end call requested, clean up after speaking
+      if (toolResult.endCall) {
+        setTimeout(() => {
+          this.endCall(sessionId).catch((err) => logger.error('Failed to end call after audio', { sessionId, error: err }));
+        }, 2000);
+      }
 
       // Update agent state
       agentState.lastActivity = new Date();
@@ -115,6 +127,72 @@ export class VoiceAgentService {
       logger.error('Voice agent audio processing failed', { sessionId, error });
       throw error;
     }
+  }
+
+  private async executeToolCalls(
+    sessionId: string,
+    functionCalls: FunctionCall[] | undefined
+  ): Promise<{ endCall: boolean; transferTo?: string }> {
+    const agentState = this.agents.get(sessionId);
+    const result: { endCall: boolean; transferTo?: string } = { endCall: false };
+
+    if (!functionCalls || functionCalls.length === 0) {
+      return result;
+    }
+
+    for (const call of functionCalls) {
+      logger.info('=== EXECUTING TOOL ===', { sessionId, tool: call.name, parameters: call.parameters });
+      try {
+        switch (call.name) {
+          case 'readLead':
+            logger.info('readLead requested — lead data already loaded from Google Sheets', { sessionId });
+            break;
+
+          case 'updateLead':
+          case 'updateGoogleSheet': {
+            const email = call.parameters?.email || agentState?.customerContext?.email;
+            if (!email) {
+              logger.warn('updateGoogleSheet missing email', { sessionId });
+              break;
+            }
+            const { email: _email, ...leadData } = call.parameters;
+            await googleSheetsService.updateLead(email, leadData);
+            logger.info('Google Sheet updated', { sessionId, email, leadData });
+            break;
+          }
+
+          case 'sendLoanEmail': {
+            const email = call.parameters?.email || agentState?.customerContext?.email;
+            const customerName = agentState?.customerContext?.name || 'Customer';
+            const loanAmount = call.parameters?.loanAmount;
+            if (!email) {
+              logger.warn('sendLoanEmail missing email', { sessionId });
+              break;
+            }
+            await emailService.sendApplicationEmail(customerName, email, loanAmount);
+            logger.info('Loan application email sent', { sessionId, email });
+            break;
+          }
+
+          case 'transferCall': {
+            const to = call.parameters?.to || '4702063218';
+            result.transferTo = to;
+            break;
+          }
+
+          case 'endCall':
+            result.endCall = true;
+            break;
+
+          default:
+            logger.warn('Unknown tool call', { sessionId, name: call.name });
+        }
+      } catch (error) {
+        logger.error('Tool execution failed', { sessionId, tool: call.name, error });
+      }
+    }
+
+    return result;
   }
 
   async makeCall(phoneNumber: string, sessionId: string): Promise<string> {
@@ -170,12 +248,25 @@ export class VoiceAgentService {
 
             const response = await this.conversationEngine.processMessage(sessionId, transcript.transcript);
             logger.info('=== AI RESPONSE ===', { callId, response: response.content });
+
+            const toolResult = await this.executeToolCalls(sessionId, response.functionCalls);
+            logger.info('=== TOOL RESULTS ===', { callId, ...toolResult });
             
             const ttsAudio = await this.ttsProvider.synthesize(response.content);
             logger.info('=== TTS AUDIO ===', { callId, audioSize: ttsAudio.audioBuffer.length });
             
             await telnyxMediaProvider.sendAudio(callId, ttsAudio.audioBuffer);
             logger.info('=== AUDIO SENT TO CALLER ===', { callId });
+
+            // Handle terminating tools after the AI has spoken
+            if (toolResult.endCall) {
+              await this.endCall(sessionId);
+              return;
+            }
+            if (toolResult.transferTo && callId) {
+              await this.telnyxProvider.transferCall(callId, toolResult.transferTo);
+              return;
+            }
 
             // Estimate TTS playback time: ~60ms per character spoken
             const estimatedPlaybackMs = response.content.length * 60;

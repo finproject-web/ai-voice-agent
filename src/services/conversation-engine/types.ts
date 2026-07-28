@@ -17,6 +17,22 @@ export interface ConversationContext {
   extractedData: Record<string, any>;
   customerIntent?: string;
   lastActivity: Date;
+  state: ConversationState;
+  toolLog?: { tool: string; params: Record<string, any>; result?: string }[];
+}
+
+export interface ConversationState {
+  interest_confirmed?: boolean;
+  loan_amount?: string;
+  email_confirmed?: boolean;
+  email_sent?: boolean;
+  application_started?: boolean;
+  application_completed?: boolean;
+  currentStage: string;
+  last_question?: string;
+  customer_language?: string;
+  lastToolResult?: string;
+  [key: string]: any;
 }
 
 export interface ConversationEngineOptions {
