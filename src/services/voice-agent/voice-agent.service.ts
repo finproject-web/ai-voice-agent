@@ -212,15 +212,45 @@ export class VoiceAgentService {
   private async generateGreetingAudio(sessionId: string): Promise<Buffer> {
     try {
       logger.info('=== GREETING REQUESTED ===', { sessionId, timestamp: new Date().toISOString() });
-      const greetingResponse = await this.conversationEngine.processMessage(sessionId, '');
-      logger.info('=== GREETING AI TEXT ===', { sessionId, text: greetingResponse.content, timestamp: new Date().toISOString() });
+
+      const context = this.conversationEngine.getContext(sessionId);
+      if (!context) {
+        throw new Error(`No conversation context found for session: ${sessionId}`);
+      }
+
+      const name = context.customerName || 'the customer';
+      const greetingText = `Hi ${name}, this is Sophia from Up Start Loans. Am I speaking with ${name}? I'm calling because you recently applied for a loan and your application has been pre-qualified. Are you still looking for a loan today?`;
+
+      // Seed the conversation history and advance to identity confirmation without waiting for an LLM
+      context.messages.push({ role: 'user', content: '', timestamp: new Date() });
+      context.messages.push({ role: 'assistant', content: greetingText, timestamp: new Date() });
+      context.state = {
+        ...context.state,
+        currentStage: 'identity_confirmation',
+        last_question: 'Are you still looking for a loan today?',
+      };
+      context.lastActivity = new Date();
+      this.conversationEngine.updateContext(sessionId, { messages: context.messages, state: context.state, lastActivity: new Date() });
+
+      logger.info('=== GREETING TEXT ===', { sessionId, text: greetingText, timestamp: new Date().toISOString() });
       logger.info('=== TTS STARTED ===', { sessionId, timestamp: new Date().toISOString() });
-      const ttsAudio = await this.ttsProvider.synthesize(greetingResponse.content);
+      const ttsAudio = await this.ttsProvider.synthesize(greetingText);
       logger.info('=== TTS FINISHED ===', { sessionId, audioSize: ttsAudio.audioBuffer.length, timestamp: new Date().toISOString() });
       return ttsAudio.audioBuffer;
     } catch (error: any) {
       logger.error('=== GREETING GENERATION FAILED ===', { sessionId, error: error?.message || error });
       throw error;
+    }
+  }
+
+  private syncAgentState(sessionId: string): void {
+    const context = this.conversationEngine.getContext(sessionId);
+    const agentState = this.agents.get(sessionId);
+    if (context && agentState) {
+      const stage = context.state?.currentStage || context.currentStage || 'greeting';
+      agentState.currentStage = stage;
+      this.agents.set(sessionId, agentState);
+      logger.info('=== AGENT STATE SYNCED ===', { sessionId, currentStage: stage });
     }
   }
 
@@ -253,6 +283,7 @@ export class VoiceAgentService {
       agentState.greetingAudioBuffer = greetingAudioBuffer;
       this.agents.set(sessionId, agentState);
       logger.info('=== PRE-GENERATED GREETING READY ===', { sessionId, audioSize: greetingAudioBuffer.length });
+      this.syncAgentState(sessionId);
 
       // Place the call only after greeting audio is ready
       const callResult = await this.telnyxProvider.createCall({
@@ -298,6 +329,7 @@ export class VoiceAgentService {
             lastResponseTime = Date.now();
 
             const response = await this.conversationEngine.processMessage(sessionId, transcript.transcript);
+            this.syncAgentState(sessionId);
             logger.info('=== AI RESPONSE ===', { callId, response: response.content });
 
             const toolResult = await this.executeToolCalls(sessionId, response.functionCalls);
@@ -444,7 +476,6 @@ export class VoiceAgentService {
       case 'call.answered':
       case 'call_answered':
         logger.info('=== CALL ANSWERED ===', { sessionId, callId, callState, callControlId: payload?.call_control_id, timestamp: new Date().toISOString() });
-        agentState.currentStage = 'conversation';
         agentState.callAnsweredAt = Date.now();
         this.agents.set(sessionId, agentState);
         

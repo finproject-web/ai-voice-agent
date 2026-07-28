@@ -94,6 +94,8 @@ No extra commentary. No explanations. No bullet points. Only the spoken text plu
     const email = context.customerEmail || 'Not on file';
     const phone = context.customerPhone || context.phoneNumber || 'Not on file';
     const status = context.extractedData?.status || 'Not on file';
+    const workerSlot = context.extractedData?.worker_slot || 'Not assigned';
+    const agentAssigned = context.extractedData?.Agent_Assigned || 'Not assigned';
     const callStatus = context.extractedData?.call_status || 'Not set';
     const processed = context.extractedData?.processed || 'No';
 
@@ -105,6 +107,8 @@ Name: ${name}
 Phone: ${phone}
 Email: ${email}
 Status: ${status}
+Worker Slot: ${workerSlot}
+Agent Assigned: ${agentAssigned}
 Call Status: ${callStatus}
 Processed: ${processed}
 
