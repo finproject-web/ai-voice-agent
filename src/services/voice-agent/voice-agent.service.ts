@@ -55,6 +55,7 @@ export class VoiceAgentService {
       lastActivity: new Date(),
       customerContext: customerContext,
       greetingSent: false,
+      greetingFinished: false,
     };
 
     this.agents.set(config.sessionId, agentState);
@@ -304,6 +305,11 @@ export class VoiceAgentService {
       let lastResponseTime = 0;
 
       telnyxMediaProvider.onAudio(async (callId: string, audio: Buffer) => {
+        // Skip until the greeting has been played on the line
+        if (!this.agents.get(sessionId)?.greetingFinished) {
+          return;
+        }
+
         // Skip processing while AI is speaking (prevent echo loop)
         if (isSpeaking) {
           return;
@@ -540,8 +546,13 @@ export class VoiceAgentService {
               audioBuffer = await this.generateGreetingAudio(sessionId);
             }
             
+            // Short delay to allow the media stream to be fully ready before sending first audio
+            await new Promise((resolve) => setTimeout(resolve, 250));
+
             logger.info('=== AUDIO SENT TO TELNYX ===', { sessionId, callId, packetCount: 1, audioSize: audioBuffer.length });
             await telnyxMediaProvider.sendAudio(callId, audioBuffer);
+            agentState.greetingFinished = true;
+            this.agents.set(sessionId, agentState);
             const latencyMs = agentState.callAnsweredAt ? Date.now() - agentState.callAnsweredAt : -1;
             logger.info('=== FIRST AUDIO SENT ===', { sessionId, callId, latencyMs, audioSize: audioBuffer.length, timestamp: new Date().toISOString() });
           }

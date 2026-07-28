@@ -27,6 +27,7 @@ export interface VoiceAgentState {
   greetingAudioBuffer?: Buffer;
   greetingAudioPromise?: Promise<Buffer>;
   callAnsweredAt?: number;
+  greetingFinished?: boolean;
 }
 
 export interface AudioStream {
