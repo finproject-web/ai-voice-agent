@@ -1,6 +1,7 @@
 import { TelnyxProvider } from '../../providers/telephony/telnyx.provider';
 import { DeepgramProvider } from '../../providers/stt/deepgram.provider';
-import { ElevenLabsProvider } from '../../providers/tts/elevenlabs.provider';
+import { ITTSProvider } from '../../providers/tts/provider.interface';
+import { createTTSProvider } from '../../providers/tts/tts.factory';
 import { ConversationEngine } from '../conversation-engine/conversation-engine.service';
 import { MemoryService } from '../memory/memory.service';
 import { VoiceAgentConfig, VoiceAgentState } from './types';
@@ -11,7 +12,7 @@ import config from '../../config';
 export class VoiceAgentService {
   private telnyxProvider: TelnyxProvider;
   private sttProvider: DeepgramProvider;
-  private ttsProvider: ElevenLabsProvider;
+  private ttsProvider: ITTSProvider;
   private conversationEngine: ConversationEngine;
   private memoryService: MemoryService;
   private agents: Map<string, VoiceAgentState>;
@@ -19,7 +20,7 @@ export class VoiceAgentService {
   constructor() {
     this.telnyxProvider = new TelnyxProvider();
     this.sttProvider = new DeepgramProvider();
-    this.ttsProvider = new ElevenLabsProvider();
+    this.ttsProvider = createTTSProvider();
     this.conversationEngine = new ConversationEngine();
     this.memoryService = new MemoryService();
     this.agents = new Map();
