@@ -357,8 +357,8 @@ export class VoiceAgentService {
               return;
             }
 
-            // Estimate TTS playback time: ~60ms per character spoken
-            const estimatedPlaybackMs = response.content.length * 60;
+            // Estimate TTS playback time and cap the guard to avoid long silence
+            const estimatedPlaybackMs = Math.min(response.content.length * 60, 12000);
             setTimeout(() => {
               isSpeaking = false;
               logger.info('=== AI DONE SPEAKING, LISTENING AGAIN ===', { callId });

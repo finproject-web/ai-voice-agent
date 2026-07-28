@@ -24,7 +24,7 @@ export class ConversationEngine {
         systemPrompt: options?.systemPrompt || '',
         model: options?.model || config.openaiModel || 'gpt-4o-mini',
         temperature: options?.temperature ?? 0.3,
-        maxTokens: options?.maxTokens ?? 120,
+        maxTokens: options?.maxTokens ?? 80,
         enableMemory: options?.enableMemory ?? true,
         enableFunctionCalling: options?.enableFunctionCalling ?? true,
       };
@@ -34,7 +34,7 @@ export class ConversationEngine {
         systemPrompt: options?.systemPrompt || '',
         model: options?.model || 'meta/llama-3.1-405b-instruct',
         temperature: options?.temperature ?? 0.3,
-        maxTokens: options?.maxTokens ?? 120,
+        maxTokens: options?.maxTokens ?? 80,
         enableMemory: options?.enableMemory ?? true,
         enableFunctionCalling: options?.enableFunctionCalling ?? true,
       };
@@ -78,6 +78,7 @@ Rules:
 - Wait for the customer to respond before continuing.
 - Do not repeat greetings or already-answered questions.
 - Maximum two short sentences per turn.
+- Keep each turn under 120 characters whenever possible.
 
 STRICT OUTPUT FORMAT:
 Return only the spoken text the customer will hear.

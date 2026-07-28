@@ -86,7 +86,8 @@ export class GoogleSheetsService {
       const leads = rows.slice(1).map((row: any) => {
         const lead: SheetRow = {};
         headers.forEach((header: string, index: number) => {
-          lead[header] = row[index] || '';
+          const key = this.normalizeHeader(header);
+          lead[key] = row[index] || '';
         });
         return lead;
       });
@@ -167,12 +168,19 @@ export class GoogleSheetsService {
     return `+${cleaned}`;
   }
 
+  private normalizeHeader(header: string): string {
+    return header
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
+  }
+
   async updateCallStatus(phone: string, callStatus: string, processed: string = 'yes'): Promise<void> {
     await this.ensureInitialized();
 
     try {
       const leads = await this.readLeads();
-      const rowIndex = leads.findIndex((lead) => lead.phone === phone);
+      const rowIndex = leads.findIndex((lead) => this.formatToE164(String(lead.phone || '')) === this.formatToE164(phone));
 
       if (rowIndex === -1) {
         logger.warn(`Lead not found for phone: ${phone}`);
@@ -224,7 +232,8 @@ export class GoogleSheetsService {
 
   async findLeadByPhone(phone: string): Promise<SheetRow | null> {
     const leads = await this.readLeads();
-    return leads.find((lead) => lead.phone === phone) || null;
+    const normalizedPhone = this.formatToE164(phone);
+    return leads.find((lead) => this.formatToE164(String(lead.phone || '')) === normalizedPhone) || null;
   }
 
   async updateLeadStatus(email: string, status: string): Promise<void> {
