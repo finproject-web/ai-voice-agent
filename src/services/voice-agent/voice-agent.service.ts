@@ -138,7 +138,20 @@ export class VoiceAgentService {
       // Register audio callback immediately for outbound calls
       // (don't wait for call.answered event which may not arrive)
       const telnyxMediaProvider = require('../../providers/telephony/telnyx-media.provider').default;
+      let isSpeaking = false;
+      let lastResponseTime = 0;
+
       telnyxMediaProvider.onAudio(async (callId: string, audio: Buffer) => {
+        // Skip processing while AI is speaking (prevent echo loop)
+        if (isSpeaking) {
+          return;
+        }
+
+        // Debounce: don't process if we responded less than 3 seconds ago
+        if (Date.now() - lastResponseTime < 3000) {
+          return;
+        }
+
         logger.info('=== MEDIA PACKET RECEIVED (from makeCall) ===', { 
           callId, sessionId,
           packetSize: audio.length 
@@ -148,7 +161,11 @@ export class VoiceAgentService {
           const transcript = await this.sttProvider.transcribe(audio);
           logger.info('=== TRANSCRIPT ===', { callId, transcript: transcript.transcript });
           
-          if (transcript.transcript && transcript.transcript.trim().length > 0) {
+          // Only respond if transcript has meaningful content (more than 2 chars)
+          if (transcript.transcript && transcript.transcript.trim().length > 2) {
+            isSpeaking = true;
+            lastResponseTime = Date.now();
+
             const response = await this.conversationEngine.processMessage(sessionId, transcript.transcript);
             logger.info('=== AI RESPONSE ===', { callId, response: response.content });
             
@@ -157,8 +174,16 @@ export class VoiceAgentService {
             
             await telnyxMediaProvider.sendAudio(callId, ttsAudio.audioBuffer);
             logger.info('=== AUDIO SENT TO CALLER ===', { callId });
+
+            // Estimate TTS playback time: ~100ms per character spoken
+            const estimatedPlaybackMs = response.content.length * 80;
+            setTimeout(() => {
+              isSpeaking = false;
+              logger.info('=== AI DONE SPEAKING, LISTENING AGAIN ===', { callId });
+            }, estimatedPlaybackMs);
           }
         } catch (error) {
+          isSpeaking = false;
           logger.error('=== AUDIO PROCESSING FAILED ===', { callId, error });
         }
       });
