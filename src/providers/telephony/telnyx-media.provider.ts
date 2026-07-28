@@ -254,23 +254,33 @@ class TelnyxMediaProvider {
     }
 
     try {
-      // Encode audio as base64 and send as media frame
-      const base64Audio = audioBuffer.toString('base64');
-      
-      const mediaFrame = {
-        event: 'media',
-        media: {
-          track: 'outbound',
-          payload: base64Audio
+      // Telnyx media streaming expects 20 ms PCMU/mu-law frames (160 bytes at 8 kHz)
+      const chunkSize = 160;
+      let chunkCount = 0;
+      for (let offset = 0; offset < audioBuffer.length; offset += chunkSize) {
+        const chunk = audioBuffer.slice(offset, offset + chunkSize);
+        const base64Audio = chunk.toString('base64');
+        
+        const mediaFrame = {
+          event: 'media',
+          media: {
+            track: 'outbound',
+            payload: base64Audio
+          }
+        };
+
+        ws.send(JSON.stringify(mediaFrame));
+        chunkCount++;
+        if (offset + chunkSize < audioBuffer.length) {
+          await new Promise((resolve) => setTimeout(resolve, 20));
         }
-      };
+      }
 
       logger.info('=== SENDING AUDIO TO TELNYX ===', { 
         callId, 
-        audioSize: audioBuffer.length 
+        audioSize: audioBuffer.length,
+        chunks: chunkCount
       });
-
-      ws.send(JSON.stringify(mediaFrame));
     } catch (error) {
       logger.error('=== FAILED TO SEND AUDIO TO TELNYX ===', { callId, error });
     }

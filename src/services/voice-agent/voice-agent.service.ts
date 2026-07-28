@@ -237,11 +237,42 @@ export class VoiceAgentService {
       logger.info('=== TTS STARTED ===', { sessionId, timestamp: new Date().toISOString() });
       const ttsAudio = await this.ttsProvider.synthesize(greetingText);
       logger.info('=== TTS FINISHED ===', { sessionId, audioSize: ttsAudio.audioBuffer.length, timestamp: new Date().toISOString() });
-      return ttsAudio.audioBuffer;
+      const telnyxAudio = this.convertPcmToMulaw(ttsAudio.audioBuffer);
+      logger.info('=== TTS CONVERTED TO TELNYX FORMAT ===', { sessionId, originalSize: ttsAudio.audioBuffer.length, convertedSize: telnyxAudio.length, timestamp: new Date().toISOString() });
+      return telnyxAudio;
     } catch (error: any) {
       logger.error('=== GREETING GENERATION FAILED ===', { sessionId, error: error?.message || error });
       throw error;
     }
+  }
+
+  private linearToMuLaw(sample: number): number {
+    const BIAS = 0x84;
+    const CLIP = 32635;
+    let sign = (sample >> 8) & 0x80;
+    if (sign) sample = -sample;
+    sample = BIAS + sample;
+    if (sample > CLIP) sample = CLIP;
+    let shift = 14;
+    let n = sample >> shift;
+    while (n === 0 && shift > 3) {
+      shift--;
+      n = sample >> shift;
+    }
+    n = (sample >> (shift - 3)) & 0x0f;
+    const chord = (14 - shift) & 0x07;
+    return ~(sign | (chord << 4) | n) & 0xff;
+  }
+
+  private convertPcmToMulaw(pcmBuffer: Buffer, inputSampleRate = 24000, outputSampleRate = 8000): Buffer {
+    const samples = new Int16Array(pcmBuffer.buffer, pcmBuffer.byteOffset, Math.floor(pcmBuffer.length / 2));
+    const ratio = inputSampleRate / outputSampleRate;
+    const outputLength = Math.floor(samples.length / ratio);
+    const mulawBuffer = Buffer.alloc(outputLength);
+    for (let i = 0, j = 0; j < outputLength; i += ratio, j++) {
+      mulawBuffer[j] = this.linearToMuLaw(samples[i]);
+    }
+    return mulawBuffer;
   }
 
   private syncAgentState(sessionId: string): void {
@@ -332,7 +363,6 @@ export class VoiceAgentService {
           // Only respond if transcript has meaningful content (more than 2 chars)
           if (transcript.transcript && transcript.transcript.trim().length > 2) {
             isSpeaking = true;
-            lastResponseTime = Date.now();
 
             const response = await this.conversationEngine.processMessage(sessionId, transcript.transcript);
             this.syncAgentState(sessionId);
@@ -344,7 +374,10 @@ export class VoiceAgentService {
             const ttsAudio = await this.ttsProvider.synthesize(response.content);
             logger.info('=== TTS AUDIO ===', { callId, audioSize: ttsAudio.audioBuffer.length });
             
-            await telnyxMediaProvider.sendAudio(callId, ttsAudio.audioBuffer);
+            const telnyxAudio = this.convertPcmToMulaw(ttsAudio.audioBuffer);
+            logger.info('=== TTS CONVERTED ===', { callId, originalSize: ttsAudio.audioBuffer.length, convertedSize: telnyxAudio.length });
+
+            await telnyxMediaProvider.sendAudio(callId, telnyxAudio);
             logger.info('=== AUDIO SENT TO CALLER ===', { callId });
 
             // Handle terminating tools after the AI has spoken
@@ -357,12 +390,11 @@ export class VoiceAgentService {
               return;
             }
 
-            // Estimate TTS playback time and cap the guard to avoid long silence
-            const estimatedPlaybackMs = Math.min(response.content.length * 60, 12000);
-            setTimeout(() => {
-              isSpeaking = false;
-              logger.info('=== AI DONE SPEAKING, LISTENING AGAIN ===', { callId });
-            }, estimatedPlaybackMs);
+            // Let the last chunk finish playing before listening again
+            await new Promise((resolve) => setTimeout(resolve, 80));
+            isSpeaking = false;
+            lastResponseTime = Date.now();
+            logger.info('=== AI DONE SPEAKING, LISTENING AGAIN ===', { callId });
           }
         } catch (error) {
           isSpeaking = false;
@@ -385,14 +417,20 @@ export class VoiceAgentService {
           audioBuffer = await this.generateGreetingAudio(sessionId);
         }
 
+        const greetingDurationMs = audioBuffer.length / 8;
         logger.info('=== SENDING GREETING ON MEDIA STREAM START ===', { sessionId, callId: mediaCallId, audioSize: audioBuffer.length });
         await telnyxMediaProvider.sendAudio(mediaCallId, audioBuffer);
         agentState.greetingSent = true;
-        agentState.greetingFinished = true;
         this.agents.set(sessionId, agentState);
 
         const latencyMs = agentState.callAnsweredAt ? Date.now() - agentState.callAnsweredAt : -1;
         logger.info('=== FIRST AUDIO SENT ===', { sessionId, callId: mediaCallId, latencyMs, audioSize: audioBuffer.length, timestamp: new Date().toISOString() });
+
+        setTimeout(() => {
+          agentState.greetingFinished = true;
+          this.agents.set(sessionId, agentState);
+          logger.info('=== GREETING FINISHED, LISTENING ENABLED ===', { sessionId, callId: mediaCallId, greetingDurationMs });
+        }, greetingDurationMs + 80);
       });
 
       return callResult.callId;

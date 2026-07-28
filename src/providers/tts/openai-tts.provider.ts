@@ -23,7 +23,7 @@ export class OpenAITTSProvider implements ITTSProvider {
         model: 'tts-1',
         voice,
         input: text,
-        response_format: 'mp3',
+        response_format: 'pcm',
         speed: 0.9,
       });
 
@@ -38,7 +38,7 @@ export class OpenAITTSProvider implements ITTSProvider {
 
       return {
         audioBuffer,
-        contentType: 'audio/mpeg',
+        contentType: 'audio/pcm',
       };
     } catch (error) {
       logger.error('OpenAI TTS synthesis failed', { error });
