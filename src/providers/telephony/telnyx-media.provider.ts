@@ -164,9 +164,21 @@ class TelnyxMediaProvider {
    * Handle media frame from Telnyx (JSON format)
    */
   private handleMediaFrame(message: any): void {
-    const callId = message.stream_id; // Use stream_id to identify call
-    const base64Payload = message.media?.payload;
+    const callId = message.stream_id || 'default-stream';
+    const base64Payload = message.media?.payload || message.payload || message.media?.chunk;
     
+    // Log first few media messages to debug structure
+    if (!this.audioBuffers.has(callId)) {
+      logger.info('=== FIRST MEDIA FRAME STRUCTURE ===', { 
+        callId,
+        keys: Object.keys(message),
+        mediaKeys: message.media ? Object.keys(message.media) : 'no media field',
+        hasPayload: !!base64Payload,
+        streamId: message.stream_id,
+        sampleMessage: JSON.stringify(message).substring(0, 500)
+      });
+    }
+
     if (!base64Payload) {
       return;
     }
