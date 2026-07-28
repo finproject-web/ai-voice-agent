@@ -370,6 +370,31 @@ export class VoiceAgentService {
         }
       });
 
+      // Send the greeting as soon as the Telnyx media stream starts
+      telnyxMediaProvider.onMediaStreamStart(async (mediaCallId: string) => {
+        const agentState = this.agents.get(sessionId);
+        if (!agentState || agentState.greetingSent) {
+          return;
+        }
+
+        let audioBuffer = agentState.greetingAudioBuffer;
+        if (!audioBuffer && agentState.greetingAudioPromise) {
+          audioBuffer = await agentState.greetingAudioPromise;
+        }
+        if (!audioBuffer) {
+          audioBuffer = await this.generateGreetingAudio(sessionId);
+        }
+
+        logger.info('=== SENDING GREETING ON MEDIA STREAM START ===', { sessionId, callId: mediaCallId, audioSize: audioBuffer.length });
+        await telnyxMediaProvider.sendAudio(mediaCallId, audioBuffer);
+        agentState.greetingSent = true;
+        agentState.greetingFinished = true;
+        this.agents.set(sessionId, agentState);
+
+        const latencyMs = agentState.callAnsweredAt ? Date.now() - agentState.callAnsweredAt : -1;
+        logger.info('=== FIRST AUDIO SENT ===', { sessionId, callId: mediaCallId, latencyMs, audioSize: audioBuffer.length, timestamp: new Date().toISOString() });
+      });
+
       return callResult.callId;
     } catch (error) {
       logger.error('Failed to make call', { sessionId, phoneNumber, error });
@@ -503,63 +528,7 @@ export class VoiceAgentService {
 
       case 'call.media_start':
       case 'call_media_start':
-        logger.info('=== MEDIA START EVENT - WEBSOCKET CONNECTION ===', { sessionId, callId });
-        
-        // Connect to Telnyx media stream
-        try {
-          const streamUrl = payload?.media_stream?.url;
-          const streamToken = payload?.media_stream?.token;
-          
-          if (!streamUrl) {
-            logger.error('=== NO MEDIA STREAM URL IN PAYLOAD ===', { sessionId, callId, payload });
-            return;
-          }
-          
-          logger.info('=== CONNECTING TO TELNYX MEDIA STREAM ===', { sessionId, callId, streamUrl });
-          
-          // Import and use media provider
-          const telnyxMediaProvider = require('../../providers/telephony/telnyx-media.provider').default;
-          
-          // Audio callback is already registered in makeCall. Do not register again.
-          await telnyxMediaProvider.connectMediaStream({
-            callId,
-            streamUrl,
-            streamToken
-          });
-          
-          logger.info('=== WEBSOCKET CONNECTION ESTABLISHED ===', { sessionId, callId });
-          
-          // Send greeting audio once
-          if (!agentState.greetingSent) {
-            agentState.greetingSent = true;
-            this.agents.set(sessionId, agentState);
-            
-            let audioBuffer: Buffer;
-            if (agentState.greetingAudioBuffer) {
-              audioBuffer = agentState.greetingAudioBuffer;
-              logger.info('=== USING PRE-GENERATED GREETING AUDIO ===', { sessionId, callId, audioSize: audioBuffer.length });
-            } else if (agentState.greetingAudioPromise) {
-              logger.info('=== WAITING FOR PRE-GENERATED GREETING AUDIO ===', { sessionId, callId });
-              audioBuffer = await agentState.greetingAudioPromise;
-            } else {
-              logger.warn('=== GREETING NOT PRE-GENERATED, GENERATING NOW ===', { sessionId, callId });
-              audioBuffer = await this.generateGreetingAudio(sessionId);
-            }
-            
-            // Short delay to allow the media stream to be fully ready before sending first audio
-            await new Promise((resolve) => setTimeout(resolve, 250));
-
-            logger.info('=== AUDIO SENT TO TELNYX ===', { sessionId, callId, packetCount: 1, audioSize: audioBuffer.length });
-            await telnyxMediaProvider.sendAudio(callId, audioBuffer);
-            agentState.greetingFinished = true;
-            this.agents.set(sessionId, agentState);
-            const latencyMs = agentState.callAnsweredAt ? Date.now() - agentState.callAnsweredAt : -1;
-            logger.info('=== FIRST AUDIO SENT ===', { sessionId, callId, latencyMs, audioSize: audioBuffer.length, timestamp: new Date().toISOString() });
-          }
-          
-        } catch (error) {
-          logger.error('=== FAILED TO CONNECT MEDIA STREAM ===', { sessionId, callId, error });
-        }
+        logger.info('=== MEDIA START WEBHOOK (handled by WebSocket start event) ===', { sessionId, callId });
         break;
 
       case 'call.ended':

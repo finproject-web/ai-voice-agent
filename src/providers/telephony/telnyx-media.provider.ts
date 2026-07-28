@@ -18,12 +18,20 @@ class TelnyxMediaProvider {
   private connections: Map<string, WebSocket> = new Map();
   private audioBuffers: Map<string, AudioPacket[]> = new Map();
   private onAudioCallback?: (callId: string, audio: Buffer) => void;
+  private onStreamStartCallback?: (callId: string, streamId: string) => void;
 
   /**
    * Set callback for incoming audio
    */
   onAudio(callback: (callId: string, audio: Buffer) => void): void {
     this.onAudioCallback = callback;
+  }
+
+  /**
+   * Set callback for media stream start
+   */
+  onMediaStreamStart(callback: (callId: string, streamId: string) => void): void {
+    this.onStreamStartCallback = callback;
   }
 
   /**
@@ -105,6 +113,10 @@ class TelnyxMediaProvider {
           if (message.stream_id && message.stream_id !== startCallId) {
             this.connections.set(message.stream_id, ws);
             this.audioBuffers.set(message.stream_id, []);
+          }
+
+          if (this.onStreamStartCallback) {
+            this.onStreamStartCallback(startCallId, message.stream_id);
           }
           break;
 
