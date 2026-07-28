@@ -82,14 +82,20 @@ class TelnyxMediaProvider {
           break;
 
         case 'start':
-          const callId = message.start.call_control_id;
+          const startCallId = message.start?.call_control_id || message.stream_id;
           logger.info('=== TELNYX MEDIA STREAM STARTED ===', { 
-            callId,
-            mediaFormat: message.start.media_format 
+            callId: startCallId,
+            streamId: message.stream_id,
+            mediaFormat: message.start?.media_format 
           });
 
-          this.connections.set(callId, ws);
-          this.audioBuffers.set(callId, []);
+          this.connections.set(startCallId, ws);
+          this.audioBuffers.set(startCallId, []);
+          // Also map by stream_id for media frame lookup
+          if (message.stream_id && message.stream_id !== startCallId) {
+            this.connections.set(message.stream_id, ws);
+            this.audioBuffers.set(message.stream_id, []);
+          }
           break;
 
         case 'media':
@@ -121,37 +127,31 @@ class TelnyxMediaProvider {
    */
   private handleMediaFrame(message: any): void {
     const callId = message.stream_id; // Use stream_id to identify call
-    const base64Payload = message.media.payload;
+    const base64Payload = message.media?.payload;
     
     if (!base64Payload) {
       return;
     }
 
-    console.log("AUDIO PACKET RECEIVED");
-    console.log(base64Payload.length);
-
     // Decode base64 RTP payload
     const audioBuffer = Buffer.from(base64Payload, 'base64');
 
-    logger.info('=== AUDIO FRAME RECEIVED ===', { 
-      callId,
-      track: message.media.track,
-      chunk: message.media.chunk,
-      audioSize: audioBuffer.length
+    // Buffer audio for processing - create buffer if it doesn't exist
+    let buffer = this.audioBuffers.get(callId);
+    if (!buffer) {
+      logger.info('=== CREATING AUDIO BUFFER FOR STREAM ===', { callId });
+      buffer = [];
+      this.audioBuffers.set(callId, buffer);
+    }
+
+    buffer.push({
+      data: audioBuffer,
+      timestamp: Date.now()
     });
 
-    // Buffer audio for processing
-    const buffer = this.audioBuffers.get(callId);
-    if (buffer) {
-      buffer.push({
-        data: audioBuffer,
-        timestamp: Date.now()
-      });
-
-      // Process audio when buffer reaches threshold
-      if (buffer.length >= 10) { // ~80ms of audio at 8kHz
-        this.processAudioBuffer(callId);
-      }
+    // Process audio when buffer reaches threshold (~200ms of audio)
+    if (buffer.length >= 25) {
+      this.processAudioBuffer(callId);
     }
   }
 

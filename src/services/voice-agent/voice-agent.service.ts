@@ -117,9 +117,12 @@ export class VoiceAgentService {
 
   async makeCall(phoneNumber: string, sessionId: string): Promise<string> {
     try {
+      // Use NGROK_URL as webhook URL for outbound calls
+      const webhookUrl = config.ngrokUrl || config.webhookUrl;
+      
       const callResult = await this.telnyxProvider.createCall({
         to: phoneNumber,
-        webhookUrl: `${config.webhookUrl}/telnyx/webhook`,
+        webhookUrl: `${webhookUrl}/telnyx/webhook`,
         metadata: { sessionId },
       });
 
@@ -130,7 +133,35 @@ export class VoiceAgentService {
         this.agents.set(sessionId, agentState);
       }
 
-      logger.info('Outbound call initiated', { sessionId, callId: callResult.callId, phoneNumber });
+      logger.info('Outbound call initiated', { sessionId, callId: callResult.callId, phoneNumber, webhookUrl });
+
+      // Register audio callback immediately for outbound calls
+      // (don't wait for call.answered event which may not arrive)
+      const telnyxMediaProvider = require('../../providers/telephony/telnyx-media.provider').default;
+      telnyxMediaProvider.onAudio(async (callId: string, audio: Buffer) => {
+        logger.info('=== MEDIA PACKET RECEIVED (from makeCall) ===', { 
+          callId, sessionId,
+          packetSize: audio.length 
+        });
+        
+        try {
+          const transcript = await this.sttProvider.transcribe(audio);
+          logger.info('=== TRANSCRIPT ===', { callId, transcript: transcript.transcript });
+          
+          if (transcript.transcript && transcript.transcript.trim().length > 0) {
+            const response = await this.conversationEngine.processMessage(sessionId, transcript.transcript);
+            logger.info('=== AI RESPONSE ===', { callId, response: response.content });
+            
+            const ttsAudio = await this.ttsProvider.synthesize(response.content);
+            logger.info('=== TTS AUDIO ===', { callId, audioSize: ttsAudio.audioBuffer.length });
+            
+            await telnyxMediaProvider.sendAudio(callId, ttsAudio.audioBuffer);
+            logger.info('=== AUDIO SENT TO CALLER ===', { callId });
+          }
+        } catch (error) {
+          logger.error('=== AUDIO PROCESSING FAILED ===', { callId, error });
+        }
+      });
 
       return callResult.callId;
     } catch (error) {
