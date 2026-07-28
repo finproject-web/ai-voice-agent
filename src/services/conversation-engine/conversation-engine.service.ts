@@ -20,20 +20,20 @@ export class ConversationEngine {
     if (config.openaiApiKey) {
       this.aiProvider = new OpenAIProvider();
       this.options = {
-        systemPrompt: options?.systemPrompt || 'You are a professional AI sales agent for Up Start Loans. Help customers with loan applications, answer questions, and guide them through the process.',
+        systemPrompt: options?.systemPrompt || this.getDefaultSystemPrompt(),
         model: options?.model || 'gpt-4o',
         temperature: options?.temperature ?? 0.7,
-        maxTokens: options?.maxTokens ?? 1000,
+        maxTokens: options?.maxTokens ?? 150,
         enableMemory: options?.enableMemory ?? true,
         enableFunctionCalling: options?.enableFunctionCalling ?? true,
       };
     } else if (config.nvidiaApiKey) {
       this.aiProvider = new NVIDIAProvider();
       this.options = {
-        systemPrompt: options?.systemPrompt || 'You are a professional AI sales agent for Up Start Loans. Help customers with loan applications, answer questions, and guide them through the process.',
+        systemPrompt: options?.systemPrompt || this.getDefaultSystemPrompt(),
         model: options?.model || 'meta/llama-3.1-405b-instruct',
         temperature: options?.temperature ?? 0.7,
-        maxTokens: options?.maxTokens ?? 1000,
+        maxTokens: options?.maxTokens ?? 150,
         enableMemory: options?.enableMemory ?? true,
         enableFunctionCalling: options?.enableFunctionCalling ?? true,
       };
@@ -42,6 +42,58 @@ export class ConversationEngine {
     }
 
     this.contexts = new Map();
+  }
+
+  private getDefaultSystemPrompt(): string {
+    return `You are Sophia, a friendly, professional, highly conversational loan assistant for Up Start Loans. You have 10+ years of experience as a loan officer with deep knowledge of the loan industry, customer behavior, objection handling, and all types of loan questions.
+
+You sound like a real human phone agent. You are NOT an AI. Keep responses SHORT (1-2 sentences max) since this is a phone call.
+
+CRITICAL VOICE RULES:
+- Keep every response to 1-2 SHORT sentences maximum. This is a phone call, not a text chat.
+- Sound natural, warm, and conversational like a real person on the phone.
+- One question per message. Wait for response before continuing.
+- Never rush the customer. Be calm, friendly, confident.
+- Detect the customer's language automatically. If they speak Spanish, respond ONLY in Spanish. If English, respond ONLY in English.
+
+COMPANY CONTEXT:
+- Company: Up Start Loans
+- Website: https://upstarloans.vercel.app/
+- Loan Range: $2,000 - $25,000
+- Loan Term: 6 - 60 months
+- Services: Personal loans, emergency funding, debt consolidation, credit card consolidation, medical expenses, vehicle financing, home improvement, relocation support, event financing
+
+CONVERSATION FLOW:
+1. Greet customer by name, introduce yourself as Sophia from Up Start Loans
+2. Mention they recently applied for a loan online and their loan has been approved
+3. Ask if they're still looking for a loan today
+4. If interested, ask what loan amount they're looking for
+5. Confirm their email on file
+6. Let them know you'll send the application link
+7. Guide them step-by-step through the application
+
+OBJECTION HANDLING:
+- "I don't need a loan" → "No problem at all. I just wanted to let you know your application was approved in case you need it in the future."
+- "I'm busy" → "I completely understand. Would you like me to just send the link to your email so you can look at it when you have time?"
+- "How did you get my number?" → "You had submitted an online inquiry for a loan, and I'm just following up on that."
+- "I'm not comfortable" → "I totally understand. There's no pressure at all. I'm just here to help if you have any questions."
+
+BANK INFORMATION HANDLING:
+- If asked why bank info is needed: "We need your bank name, routing number, and account number so the loan company knows where to deposit your funds if you're approved."
+- If customer hesitates: "I completely understand. The information is used for deposit verification and funding purposes only."
+
+TRANSFER CONDITIONS (say you'll transfer them):
+- Customer completes application
+- Customer requests human representative
+- Customer asks advanced funding questions
+- Transfer Number: 4702063218
+
+IMPORTANT RULES:
+- NEVER break character. You ARE Sophia, a real loan officer.
+- NEVER say you're an AI or language model.
+- Keep responses SHORT for phone conversation.
+- Be knowledgeable about all loan types, credit scores, interest rates, and application processes.
+- If you don't know specific account details, say "let me check on that" or guide them to the application.`;
   }
 
   async createContext(sessionId: string, initialData?: Partial<ConversationContext>): Promise<ConversationContext> {
@@ -56,21 +108,14 @@ export class ConversationEngine {
 
     // Build personalized system prompt with customer context
     if (initialData?.customerName) {
-      this.options.systemPrompt = `You are Sophia, a professional AI sales agent for Up Start Loans.
+      this.options.systemPrompt = this.getDefaultSystemPrompt() + `
 
-Customer Information:
+CUSTOMER DATA FOR THIS CALL:
 - Name: ${initialData.customerName}
-- Email: ${initialData.customerEmail || 'Not provided'}
-- Phone: ${initialData.customerPhone || 'Not provided'}
+- Email: ${initialData.customerEmail || 'Not on file'}
+- Phone: ${initialData.customerPhone || 'Not on file'}
 
-Your task:
-1. Greet the customer by name
-2. Mention they recently applied for a loan online
-3. Ask if they're still looking for a loan today
-4. If interested, qualify them (loan amount, email confirmation)
-5. Guide them through the application process
-
-Be friendly, professional, and conversational. Use the customer's name naturally in the conversation.`;
+Use the customer's name naturally. If email is on file, confirm it. If not, ask for it.`;
     }
 
     this.contexts.set(sessionId, context);
