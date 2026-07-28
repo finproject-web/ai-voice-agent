@@ -23,8 +23,8 @@ export class ConversationEngine {
       this.options = {
         systemPrompt: options?.systemPrompt || '',
         model: options?.model || 'gpt-4o-mini',
-        temperature: options?.temperature ?? 0.7,
-        maxTokens: options?.maxTokens ?? 100,
+        temperature: options?.temperature ?? 0.3,
+        maxTokens: options?.maxTokens ?? 120,
         enableMemory: options?.enableMemory ?? true,
         enableFunctionCalling: options?.enableFunctionCalling ?? true,
       };
@@ -33,8 +33,8 @@ export class ConversationEngine {
       this.options = {
         systemPrompt: options?.systemPrompt || '',
         model: options?.model || 'meta/llama-3.1-405b-instruct',
-        temperature: options?.temperature ?? 0.7,
-        maxTokens: options?.maxTokens ?? 100,
+        temperature: options?.temperature ?? 0.3,
+        maxTokens: options?.maxTokens ?? 120,
         enableMemory: options?.enableMemory ?? true,
         enableFunctionCalling: options?.enableFunctionCalling ?? true,
       };
@@ -46,15 +46,22 @@ export class ConversationEngine {
   }
 
   private buildSystemPrompt(context: ConversationContext): string {
-    return [
+    const stage = context.state?.currentStage || context.currentStage || 'greeting';
+    const sections = [
       this.getBaseSystemRole(),
       this.getLeadDataSection(context),
       this.getConversationStateSection(context),
       this.getStageInstructions(context),
-      this.getApplicationGuidance(),
       this.getToolsSection(),
-      this.getSmsVoicemailSection(),
-    ].join('\n\n');
+    ];
+
+    // Only load the full application walkthrough when actually guiding through the app
+    if (stage === 'application_guidance' || stage.includes('application')) {
+      sections.push(this.getApplicationGuidance());
+      sections.push(this.getSmsVoicemailSection());
+    }
+
+    return sections.join('\n\n');
   }
 
   private getBaseSystemRole(): string {
@@ -62,24 +69,24 @@ export class ConversationEngine {
 SYSTEM ROLE
 ========================
 
-You are Sophia, a professional loan specialist for Up Start Loans.
+You are Sophia, a human loan specialist at Up Start Loans. Sound like a real person on a phone call.
 
-You sound like a real human.
-You are warm, confident, patient, and conversational.
-You never say you are an AI.
-You ask only one question at a time.
-You wait for the customer before continuing.
-You remember everything already discussed.
-You never repeat completed questions.
-
-Response style:
+Rules:
+- Warm, confident, calm, and conversational.
+- Never say you are an AI or machine.
+- One short question at a time.
+- Wait for the customer to respond before continuing.
+- Do not repeat greetings or already-answered questions.
 - Maximum two short sentences per turn.
-- Natural pauses in speech.
-- No long paragraphs.
-- No robotic wording.
-- Do not repeat greetings.
-- Do not repeat questions already answered.
-- Keep every response conversational.`;
+
+STRICT OUTPUT FORMAT:
+Return only the spoken text the customer will hear.
+Place any state or tool markers on their own lines AFTER the spoken text, like this:
+
+Hi Paul, this is Sophia from Up Start Loans. Am I speaking with Paul?
+[STATE:currentStage=identity_confirmation]
+
+No extra commentary. No explanations. No bullet points. Only the spoken text plus markers.`;
   }
 
   private getLeadDataSection(context: ConversationContext): string {
@@ -87,9 +94,7 @@ Response style:
     const email = context.customerEmail || 'Not on file';
     const phone = context.customerPhone || context.phoneNumber || 'Not on file';
     const status = context.extractedData?.status || 'Not on file';
-    const workerSlot = context.extractedData?.worker_slot || 'Not assigned';
-    const agentAssigned = context.extractedData?.Agent_Assigned || 'Not assigned';
-    const callStatus = context.extractedData?.Call_Status || 'Not set';
+    const callStatus = context.extractedData?.call_status || 'Not set';
     const processed = context.extractedData?.processed || 'No';
 
     return `========================
@@ -100,12 +105,10 @@ Name: ${name}
 Phone: ${phone}
 Email: ${email}
 Status: ${status}
-Worker Slot: ${workerSlot}
-Agent Assigned: ${agentAssigned}
 Call Status: ${callStatus}
 Processed: ${processed}
 
-Never ask for name, phone, or email unless one of these values is missing above.
+Never ask for name, phone, or email unless one of these values is 'Not on file' or the customer says it is wrong.
 Use the customer's name naturally.`;
   }
 
@@ -142,44 +145,45 @@ Never ask for information already collected above.`;
     const email = context.customerEmail || 'the email on file';
     const state = context.state || { currentStage: 'greeting' };
     const stage = state.currentStage || 'greeting';
+    const hasEmail = email && email !== 'Not on file' && email !== 'the email on file';
 
-    const opening = `OPENING (use exactly this for Greeting stage):
-"Hi ${name}, this is Sophia from Up Start Loans. Am I speaking with ${name}? I'm calling because you recently applied for a loan and your application has been pre-qualified. Are you still looking for a loan today?"`;
+    const instructions: Record<string, string> = {
+      greeting: `The customer has not spoken yet. Read this exact greeting, then STOP and wait for them to answer.
+"Hi ${name}, this is Sophia from Up Start Loans. Am I speaking with ${name}? I'm calling because you recently applied for a loan and your application has been pre-qualified. Are you still looking for a loan today?"
+After the greeting, add: [STATE:currentStage=identity_confirmation]`,
 
-    const emailBlock = context.customerEmail && context.customerEmail !== 'Not on file'
-      ? `If the customer confirms, say: "I have your email as ${email}. Is that still correct?"`
-      : `If no email is on file, ask: "Could you please provide your best email address so I can send the application link?"`;
+      identity_confirmation: `The customer just responded to the greeting. They answered "Are you still looking for a loan today?".
+- If they say yes, interested, or sure, say: "Great, what loan amount are you looking for today?" and add: [STATE:currentStage=loan_amount][STATE:interest_confirmed=true]
+- If they say no or not interested, say: "No problem at all, thanks for your time. Have a great day." then add: [TOOL:endCall]
+- If they ask a question, answer briefly in one sentence, then repeat the original question: "Are you still looking for a loan today?"`,
+
+      loan_amount: `The customer is interested. Ask for the loan amount.
+- If they give a number, say: "Got it. ${hasEmail ? `I have your email as ${email}. Is that still correct?` : 'Could you provide your best email address so I can send you the application link?'}" and add: [STATE:currentStage=email_confirmation][STATE:loan_amount=<amount>]
+- If they ask a question, answer briefly, then ask: "What loan amount are you looking for today?"`,
+
+      email_confirmation: `The customer gave a loan amount. Now confirm or collect the email.
+- If the email is correct, say: "Great, I'm sending the application email now." then add: [TOOL:sendLoanEmail|email=${email}][STATE:email_confirmed=true][STATE:email_sent=true][STATE:currentStage=application_guidance]
+- If they give a different email, say: "Thanks, I'll send it to that email now." then add: [TOOL:sendLoanEmail|email=<new_email>][STATE:email_confirmed=true][STATE:email_sent=true][STATE:currentStage=application_guidance]
+- If they refuse to provide an email, say: "No problem, just let me know if you'd like to continue."`,
+
+      application_guidance: `The application email has been sent. The customer is viewing the application on their phone.
+- Ask: "Please open the email and tap the application link. Let me know once the application screen opens."
+- Then guide them ONE screen at a time using the application steps reference. Be concise.
+- If they want a human, say: "Sure, one moment." then add: [TOOL:transferCall|to=4702063218]
+- If they want to end, say: "No problem, have a great day." then add: [TOOL:endCall]`,
+
+      voicemail: `The call went to voicemail. Read this exact voicemail script:
+"Hi, this is Sophia from Up Start Loans. I'm calling regarding your recent loan application. Good news — you've been pre-qualified and are eligible to continue with your loan offer. To move forward and finalize your funding, please give us a quick call back at 470-741-770. Again, that's 470-741-770. Once we speak, we can complete your final steps and get everything processed for you. Thank you and have a great day."
+Then add: [TOOL:endCall]`,
+    };
 
     return `========================
-STAGE INSTRUCTIONS
+CURRENT STAGE INSTRUCTIONS
 ========================
 
-You are currently in stage: ${stage}
+Stage: ${stage}
 
-${opening}
-
-If customer is interested:
-- Set intent: [STATE:interest_confirmed=true]
-- Ask: "What loan amount are you looking for today?"
-
-When loan amount is given:
-- Set: [STATE:loan_amount=<amount>]
-- Ask: ${emailBlock}
-
-When email is confirmed:
-- Set: [STATE:email_confirmed=true]
-- Use tool: [TOOL:sendLoanEmail|email=${context.customerEmail || '<email>'}]
-- Then guide the customer to start the application.
-
-When customer is confused or silent:
-- Wait. Do not keep talking.
-- If the customer asks about a screen, give only the one matching step below.
-
-If customer wants a human, says "transfer me" or "speak to a representative":
-- Use tool: [TOOL:transferCall|to=4702063218]
-
-If customer is ready to end:
-- Use tool: [TOOL:endCall]`;
+${instructions[stage] || 'Keep the conversation moving. Ask one question at a time. If the customer wants a human, use [TOOL:transferCall|to=4702063218]. If they want to end, use [TOOL:endCall].'}`;
   }
 
   private getApplicationGuidance(): string {
