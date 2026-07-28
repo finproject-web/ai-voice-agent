@@ -59,6 +59,19 @@ export class VoiceAgentService {
 
     this.agents.set(config.sessionId, agentState);
 
+    // Pre-generate greeting audio immediately so it is ready before the customer answers
+    agentState.greetingAudioPromise = this.generateGreetingAudio(config.sessionId)
+      .then((audioBuffer) => {
+        agentState.greetingAudioBuffer = audioBuffer;
+        this.agents.set(config.sessionId, agentState);
+        return audioBuffer;
+      })
+      .catch((error) => {
+        logger.error('=== PRE-GENERATION OF GREETING FAILED ===', { sessionId: config.sessionId, error });
+        throw error;
+      });
+    this.agents.set(config.sessionId, agentState);
+
     logger.info('=== VOICE AGENT INITIALIZED ===', { 
       sessionId: config.sessionId,
       customerName: customerContext?.name,
@@ -198,10 +211,12 @@ export class VoiceAgentService {
 
   private async generateGreetingAudio(sessionId: string): Promise<Buffer> {
     try {
+      logger.info('=== GREETING REQUESTED ===', { sessionId, timestamp: new Date().toISOString() });
       const greetingResponse = await this.conversationEngine.processMessage(sessionId, '');
-      logger.info('=== GREETING AI TEXT ===', { sessionId, text: greetingResponse.content });
+      logger.info('=== GREETING AI TEXT ===', { sessionId, text: greetingResponse.content, timestamp: new Date().toISOString() });
+      logger.info('=== TTS STARTED ===', { sessionId, timestamp: new Date().toISOString() });
       const ttsAudio = await this.ttsProvider.synthesize(greetingResponse.content);
-      logger.info('=== GREETING TTS AUDIO ===', { sessionId, audioSize: ttsAudio.audioBuffer.length });
+      logger.info('=== TTS FINISHED ===', { sessionId, audioSize: ttsAudio.audioBuffer.length, timestamp: new Date().toISOString() });
       return ttsAudio.audioBuffer;
     } catch (error: any) {
       logger.error('=== GREETING GENERATION FAILED ===', { sessionId, error: error?.message || error });
@@ -211,20 +226,15 @@ export class VoiceAgentService {
 
   async makeCall(phoneNumber: string, sessionId: string): Promise<string> {
     try {
-      // Use NGROK_URL as webhook URL for outbound calls
       const webhookUrl = config.ngrokUrl || config.webhookUrl;
-      
-      const callResult = await this.telnyxProvider.createCall({
-        to: phoneNumber,
-        webhookUrl: `${webhookUrl}/telnyx/webhook`,
-        metadata: { sessionId },
-      });
 
-      // Update agent state with call ID
       const agentState = this.agents.get(sessionId);
-      if (agentState) {
-        agentState.callId = callResult.callId;
-        // Pre-generate greeting audio while the call is connecting
+      if (!agentState) {
+        throw new Error(`No agent state found for session ${sessionId}`);
+      }
+
+      // Ensure greeting audio is fully synthesized before the phone ever rings
+      if (!agentState.greetingAudioPromise) {
         agentState.greetingAudioPromise = this.generateGreetingAudio(sessionId)
           .then((audioBuffer) => {
             agentState.greetingAudioBuffer = audioBuffer;
@@ -232,11 +242,27 @@ export class VoiceAgentService {
             return audioBuffer;
           })
           .catch((error) => {
-            logger.error('Pre-generation of greeting audio failed', { sessionId, error });
+            logger.error('Greeting audio pre-generation failed', { sessionId, error });
             throw error;
           });
         this.agents.set(sessionId, agentState);
       }
+
+      logger.info('=== AWAITING PRE-GENERATED GREETING ===', { sessionId });
+      const greetingAudioBuffer = await agentState.greetingAudioPromise;
+      agentState.greetingAudioBuffer = greetingAudioBuffer;
+      this.agents.set(sessionId, agentState);
+      logger.info('=== PRE-GENERATED GREETING READY ===', { sessionId, audioSize: greetingAudioBuffer.length });
+
+      // Place the call only after greeting audio is ready
+      const callResult = await this.telnyxProvider.createCall({
+        to: phoneNumber,
+        webhookUrl: `${webhookUrl}/telnyx/webhook`,
+        metadata: { sessionId },
+      });
+
+      agentState.callId = callResult.callId;
+      this.agents.set(sessionId, agentState);
 
       logger.info('Outbound call initiated', { sessionId, callId: callResult.callId, phoneNumber, webhookUrl });
 
@@ -417,8 +443,9 @@ export class VoiceAgentService {
 
       case 'call.answered':
       case 'call_answered':
-        logger.info('=== CALL ANSWERED EVENT - CALL CONTROL ID ===', { sessionId, callId, callState, callControlId: payload?.call_control_id });
+        logger.info('=== CALL ANSWERED ===', { sessionId, callId, callState, callControlId: payload?.call_control_id, timestamp: new Date().toISOString() });
         agentState.currentStage = 'conversation';
+        agentState.callAnsweredAt = Date.now();
         this.agents.set(sessionId, agentState);
         
         // Audio callback is already registered in makeCall. Only start streaming here.
@@ -484,7 +511,8 @@ export class VoiceAgentService {
             
             logger.info('=== AUDIO SENT TO TELNYX ===', { sessionId, callId, packetCount: 1, audioSize: audioBuffer.length });
             await telnyxMediaProvider.sendAudio(callId, audioBuffer);
-            logger.info('=== GREETING SENT SUCCESSFULLY ===', { sessionId, callId });
+            const latencyMs = agentState.callAnsweredAt ? Date.now() - agentState.callAnsweredAt : -1;
+            logger.info('=== FIRST AUDIO SENT ===', { sessionId, callId, latencyMs, audioSize: audioBuffer.length, timestamp: new Date().toISOString() });
           }
           
         } catch (error) {

@@ -22,7 +22,7 @@ export class ConversationEngine {
       this.aiProvider = new OpenAIProvider();
       this.options = {
         systemPrompt: options?.systemPrompt || '',
-        model: options?.model || 'gpt-4o-mini',
+        model: options?.model || config.openaiModel || 'gpt-4o-mini',
         temperature: options?.temperature ?? 0.3,
         maxTokens: options?.maxTokens ?? 120,
         enableMemory: options?.enableMemory ?? true,
