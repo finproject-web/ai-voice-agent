@@ -72,7 +72,17 @@ class TelnyxMediaProvider {
    */
   private handleTelnyxMessage(ws: WebSocket, data: Buffer): void {
     try {
-      const message = JSON.parse(data.toString());
+      // Check if data is binary (raw audio) or text (JSON control message)
+      const dataStr = data.toString();
+      
+      // If it doesn't start with '{', treat as raw binary audio
+      if (!dataStr.startsWith('{')) {
+        // Raw binary RTP audio frame from Telnyx
+        this.handleRawAudioFrame(ws, data);
+        return;
+      }
+
+      const message = JSON.parse(dataStr);
       
       logger.info('=== TELNYX MESSAGE RECEIVED ===', { eventType: message.event });
 
@@ -123,7 +133,35 @@ class TelnyxMediaProvider {
   }
 
   /**
-   * Handle media frame from Telnyx
+   * Handle raw binary audio frames from Telnyx WebSocket
+   */
+  private handleRawAudioFrame(ws: WebSocket, data: Buffer): void {
+    const callId = 'raw-stream'; // Use a default key for raw binary streams
+    
+    // Buffer audio for processing - create buffer if it doesn't exist
+    let buffer = this.audioBuffers.get(callId);
+    if (!buffer) {
+      logger.info('=== RAW AUDIO STREAM STARTED ===', { dataSize: data.length });
+      buffer = [];
+      this.audioBuffers.set(callId, buffer);
+      // Also store the WebSocket connection
+      this.connections.set(callId, ws);
+    }
+
+    buffer.push({
+      data: data,
+      timestamp: Date.now()
+    });
+
+    // Process audio when buffer reaches threshold (~500ms of audio at 8kHz PCMU = ~4000 bytes)
+    const totalSize = buffer.reduce((sum, p) => sum + p.data.length, 0);
+    if (totalSize >= 4000) {
+      this.processAudioBuffer(callId);
+    }
+  }
+
+  /**
+   * Handle media frame from Telnyx (JSON format)
    */
   private handleMediaFrame(message: any): void {
     const callId = message.stream_id; // Use stream_id to identify call
