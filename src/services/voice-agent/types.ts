@@ -22,6 +22,7 @@ export interface VoiceAgentState {
   lastActivity: Date;
   callId?: string;
   customerContext?: CustomerContext;
+  greetingSent?: boolean;
 }
 
 export interface AudioStream {

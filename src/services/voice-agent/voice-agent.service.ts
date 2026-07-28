@@ -51,6 +51,7 @@ export class VoiceAgentService {
       currentStage: 'greeting',
       lastActivity: new Date(),
       customerContext: customerContext,
+      greetingSent: false,
     };
 
     this.agents.set(config.sessionId, agentState);
@@ -148,8 +149,8 @@ export class VoiceAgentService {
           return;
         }
 
-        // Debounce: don't process if we responded less than 3 seconds ago
-        if (Date.now() - lastResponseTime < 3000) {
+        // Debounce: short pause after AI speaks before listening again
+        if (Date.now() - lastResponseTime < 800) {
           return;
         }
 
@@ -176,8 +177,8 @@ export class VoiceAgentService {
             await telnyxMediaProvider.sendAudio(callId, ttsAudio.audioBuffer);
             logger.info('=== AUDIO SENT TO CALLER ===', { callId });
 
-            // Estimate TTS playback time: ~100ms per character spoken
-            const estimatedPlaybackMs = response.content.length * 80;
+            // Estimate TTS playback time: ~60ms per character spoken
+            const estimatedPlaybackMs = response.content.length * 60;
             setTimeout(() => {
               isSpeaking = false;
               logger.info('=== AI DONE SPEAKING, LISTENING AGAIN ===', { callId });
@@ -304,51 +305,9 @@ export class VoiceAgentService {
         agentState.currentStage = 'conversation';
         this.agents.set(sessionId, agentState);
         
-        // Set up audio callback for STT processing
+        // Audio callback is already registered in makeCall. Only start streaming here.
         try {
           const telnyxMediaProvider = require('../../providers/telephony/telnyx-media.provider').default;
-          
-          telnyxMediaProvider.onAudio(async (callId: string, audio: Buffer) => {
-            logger.info('=== MEDIA PACKET RECEIVED ===', { 
-              callId, 
-              timestamp: new Date().toISOString(),
-              packetSize: audio.length,
-              codec: 'PCMU/PCMA'
-            });
-            
-            try {
-              // Transcribe audio using Deepgram
-              logger.info('=== TRANSCRIBING AUDIO ===', { callId });
-              const transcript = await this.sttProvider.transcribe(audio);
-              logger.info('=== TRANSCRIPT GENERATED ===', { callId, transcript: transcript.transcript });
-              
-              if (transcript.transcript && transcript.transcript.trim().length > 0) {
-                // Generate AI response
-                logger.info('=== GENERATING AI RESPONSE ===', { callId, transcript: transcript.transcript });
-                const response = await this.conversationEngine.processMessage(sessionId, transcript.transcript);
-                logger.info('=== AI RESPONSE GENERATED ===', { callId, response: response.content });
-                
-                // Generate TTS audio
-                logger.info('=== TTS REQUEST SENT ===', { callId, text: response.content });
-                const ttsAudio = await this.ttsProvider.synthesize(response.content);
-                logger.info('=== TTS AUDIO RECEIVED ===', { 
-                  callId, 
-                  audioSize: ttsAudio.audioBuffer.length,
-                  sampleRate: '24000Hz',
-                  encoding: 'PCM16'
-                });
-                
-                // Send audio back via media stream
-                logger.info('=== AUDIO SENT TO TELNYX ===', { callId, packetCount: 1 });
-                await telnyxMediaProvider.sendAudio(callId, ttsAudio.audioBuffer);
-                logger.info('=== AUDIO SENT SUCCESSFULLY ===', { callId });
-              }
-            } catch (error) {
-              logger.error('=== FAILED TO PROCESS AUDIO ===', { callId, error });
-            }
-          });
-          
-          logger.info('=== AUDIO CALLBACK SETUP COMPLETE ===', { sessionId, callId });
           
           // For outbound calls, we must send streaming_start via API (not Call Control JSON)
           const streamUrl = telnyxMediaProvider.getServerUrl();
@@ -381,47 +340,7 @@ export class VoiceAgentService {
           // Import and use media provider
           const telnyxMediaProvider = require('../../providers/telephony/telnyx-media.provider').default;
           
-          // Set up audio callback for STT processing
-          telnyxMediaProvider.onAudio(async (callId: string, audio: Buffer) => {
-            logger.info('=== MEDIA PACKET RECEIVED ===', { 
-              callId, 
-              timestamp: new Date().toISOString(),
-              packetSize: audio.length,
-              codec: 'PCMU/PCMA'
-            });
-            
-            try {
-              // Transcribe audio using Deepgram
-              logger.info('=== TRANSCRIBING AUDIO ===', { callId });
-              const transcript = await this.sttProvider.transcribe(audio);
-              logger.info('=== TRANSCRIPT GENERATED ===', { callId, transcript: transcript.transcript });
-              
-              if (transcript.transcript && transcript.transcript.trim().length > 0) {
-                // Generate AI response
-                logger.info('=== GENERATING AI RESPONSE ===', { callId, transcript: transcript.transcript });
-                const response = await this.conversationEngine.processMessage(sessionId, transcript.transcript);
-                logger.info('=== AI RESPONSE GENERATED ===', { callId, response: response.content });
-                
-                // Generate TTS audio
-                logger.info('=== TTS REQUEST SENT ===', { callId, text: response.content });
-                const ttsAudio = await this.ttsProvider.synthesize(response.content);
-                logger.info('=== TTS AUDIO RECEIVED ===', { 
-                  callId, 
-                  audioSize: ttsAudio.audioBuffer.length,
-                  sampleRate: '24000Hz',
-                  encoding: 'PCM16'
-                });
-                
-                // Send audio back via media stream
-                logger.info('=== AUDIO SENT TO TELNYX ===', { callId, packetCount: 1 });
-                await telnyxMediaProvider.sendAudio(callId, ttsAudio.audioBuffer);
-                logger.info('=== AUDIO SENT SUCCESSFULLY ===', { callId });
-              }
-            } catch (error) {
-              logger.error('=== FAILED TO PROCESS AUDIO ===', { callId, error });
-            }
-          });
-          
+          // Audio callback is already registered in makeCall. Do not register again.
           await telnyxMediaProvider.connectMediaStream({
             callId,
             streamUrl,
@@ -430,24 +349,29 @@ export class VoiceAgentService {
           
           logger.info('=== WEBSOCKET CONNECTION ESTABLISHED ===', { sessionId, callId });
           
-          // Send greeting audio now that stream is connected
-          logger.info('=== AI GREETING TEXT GENERATION ===', { sessionId, callId });
-          const greeting = await this.conversationEngine.processMessage(sessionId, '');
-          logger.info('=== AI GREETING TEXT ===', { sessionId, callId, greetingText: greeting.content });
-          
-          logger.info('=== TTS REQUEST SENT ===', { sessionId, callId, text: greeting.content });
-          const audioBuffer = await this.ttsProvider.synthesize(greeting.content);
-          logger.info('=== TTS AUDIO RECEIVED ===', { 
-            sessionId, 
-            callId, 
-            audioSize: audioBuffer.audioBuffer.length,
-            sampleRate: '24000Hz',
-            encoding: 'PCM16'
-          });
-          
-          logger.info('=== AUDIO SENT TO TELNYX ===', { sessionId, callId, packetCount: 1 });
-          await telnyxMediaProvider.sendAudio(callId, audioBuffer.audioBuffer);
-          logger.info('=== GREETING SENT SUCCESSFULLY ===', { sessionId, callId });
+          // Send greeting audio once
+          if (!agentState.greetingSent) {
+            agentState.greetingSent = true;
+            this.agents.set(sessionId, agentState);
+            
+            logger.info('=== AI GREETING TEXT GENERATION ===', { sessionId, callId });
+            const greeting = await this.conversationEngine.processMessage(sessionId, '');
+            logger.info('=== AI GREETING TEXT ===', { sessionId, callId, greetingText: greeting.content });
+            
+            logger.info('=== TTS REQUEST SENT ===', { sessionId, callId, text: greeting.content });
+            const audioBuffer = await this.ttsProvider.synthesize(greeting.content);
+            logger.info('=== TTS AUDIO RECEIVED ===', { 
+              sessionId, 
+              callId, 
+              audioSize: audioBuffer.audioBuffer.length,
+              sampleRate: '24000Hz',
+              encoding: 'PCM16'
+            });
+            
+            logger.info('=== AUDIO SENT TO TELNYX ===', { sessionId, callId, packetCount: 1 });
+            await telnyxMediaProvider.sendAudio(callId, audioBuffer.audioBuffer);
+            logger.info('=== GREETING SENT SUCCESSFULLY ===', { sessionId, callId });
+          }
           
         } catch (error) {
           logger.error('=== FAILED TO CONNECT MEDIA STREAM ===', { sessionId, callId, error });

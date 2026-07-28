@@ -153,9 +153,9 @@ class TelnyxMediaProvider {
       timestamp: Date.now()
     });
 
-    // Process audio when buffer reaches threshold (~3 seconds of audio at 8kHz PCMU = ~24000 bytes)
+    // Process audio when buffer reaches threshold (~2 seconds of audio at 8kHz PCMU = ~16000 bytes)
     const totalSize = buffer.reduce((sum, p) => sum + p.data.length, 0);
-    if (totalSize >= 24000) {
+    if (totalSize >= 16000) {
       this.processAudioBuffer(callId);
     }
   }
@@ -199,8 +199,8 @@ class TelnyxMediaProvider {
       timestamp: Date.now()
     });
 
-    // Process audio when buffer reaches threshold (~3 seconds of audio = ~150 packets)
-    if (buffer.length >= 150) {
+    // Process audio when buffer reaches threshold (~2 seconds of audio = ~100 packets)
+    if (buffer.length >= 100) {
       this.processAudioBuffer(callId);
     }
   }

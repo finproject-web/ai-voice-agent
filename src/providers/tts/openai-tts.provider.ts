@@ -24,7 +24,7 @@ export class OpenAITTSProvider implements ITTSProvider {
         voice,
         input: text,
         response_format: 'mp3',
-        speed: 1.0,
+        speed: 0.9,
       });
 
       const arrayBuffer = await response.arrayBuffer();
