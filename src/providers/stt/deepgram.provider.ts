@@ -23,14 +23,19 @@ export class DeepgramProvider implements ISTTProvider {
           punctuate: options?.punctuate ?? true,
           profanity_filter: options?.profanityFilter ?? true,
           smart_format: true,
+          // Specify raw audio encoding from Telnyx media stream
+          encoding: 'mulaw',
+          sample_rate: 8000,
+          channels: 1,
         }
       );
 
       if (error) {
-        throw new Error(`Deepgram transcription error: ${error}`);
+        logger.error('Deepgram returned error', { error: JSON.stringify(error) });
+        throw new Error(`Deepgram transcription error: ${JSON.stringify(error)}`);
       }
 
-      const transcript = result.results?.channels[0]?.alternatives[0];
+      const transcript = result?.results?.channels[0]?.alternatives[0];
       
       return {
         transcript: transcript?.transcript || '',
@@ -44,7 +49,7 @@ export class DeepgramProvider implements ISTTProvider {
         })),
       };
     } catch (error) {
-      logger.error('Deepgram transcription failed', { error });
+      logger.error('Deepgram transcription failed', { error: (error as any)?.message || error });
       throw error;
     }
   }
