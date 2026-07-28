@@ -39,7 +39,8 @@ export class TransferCallTool implements ITool {
 
       // Transfer call using telephony provider
       const telephonyProvider = new TelnyxProvider();
-      await telephonyProvider.transferCall(call.providerCallId || callId, params.to, {
+      const providerCallId = (call.metadata as any)?.providerCallId || callId;
+      await telephonyProvider.transferCall(providerCallId, params.to, {
         callerName: params.callerName,
       });
 
@@ -47,9 +48,13 @@ export class TransferCallTool implements ITool {
       await prisma.call.update({
         where: { id: callId },
         data: {
-          status: 'TRANSFERRED',
-          transferredTo: params.to,
-          transferredAt: new Date(),
+          status: 'COMPLETED',
+          endedAt: new Date(),
+          outcome: 'transferred',
+          metadata: {
+            transferredTo: params.to,
+            transferredAt: new Date().toISOString(),
+          },
         },
       });
 

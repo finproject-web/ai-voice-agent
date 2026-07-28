@@ -14,20 +14,20 @@ export interface TokenPair {
 }
 
 export class JwtService {
-  private static accessTokenSecret = config.jwtSecret;
-  private static refreshTokenSecret = config.jwtRefreshSecret;
+  private static accessTokenSecret = config.jwtSecret || 'default-secret';
+  private static refreshTokenSecret = config.jwtRefreshSecret || 'default-refresh-secret';
   private static accessTokenExpiresIn = config.jwtExpiresIn;
   private static refreshTokenExpiresIn = config.jwtRefreshExpiresIn;
 
   static generateAccessToken(payload: JwtPayload): string {
-    return jwt.sign(payload, this.accessTokenSecret, {
-      expiresIn: this.accessTokenExpiresIn,
+    return jwt.sign(payload as any, this.accessTokenSecret, {
+      expiresIn: this.accessTokenExpiresIn as any,
     });
   }
 
   static generateRefreshToken(payload: JwtPayload): string {
-    return jwt.sign(payload, this.refreshTokenSecret, {
-      expiresIn: this.refreshTokenExpiresIn,
+    return jwt.sign(payload as any, this.refreshTokenSecret, {
+      expiresIn: this.refreshTokenExpiresIn as any,
     });
   }
 

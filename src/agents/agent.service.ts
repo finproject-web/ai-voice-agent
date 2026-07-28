@@ -48,7 +48,7 @@ export class AgentService {
 
       logger.info('Agent created', { agentId: agent.id, tenantId, name });
 
-      return agent as Agent;
+      return agent as unknown as Agent;
     } catch (error) {
       logger.error('Failed to create agent', { error, tenantId, name });
       throw error;
@@ -97,7 +97,7 @@ export class AgentService {
       ]);
 
       return {
-        agents: agents as Agent[],
+        agents: agents as unknown as Agent[],
         pagination: {
           page,
           limit,
@@ -134,7 +134,7 @@ export class AgentService {
         throw new AppError('Agent not found', 404);
       }
 
-      return agent as Agent;
+      return agent as unknown as Agent;
     } catch (error) {
       logger.error('Failed to get agent', { error, agentId, tenantId });
       throw error;
@@ -171,7 +171,7 @@ export class AgentService {
 
       logger.info('Agent updated', { agentId, tenantId });
 
-      return updatedAgent as Agent;
+      return updatedAgent as unknown as Agent;
     } catch (error) {
       logger.error('Failed to update agent', { error, agentId, tenantId });
       throw error;

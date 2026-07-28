@@ -224,7 +224,7 @@ export class LeadService {
 
     const updatedLead = await prisma.lead.update({
       where: { id: leadId },
-      data,
+      data: data as any,
       include: {
         assignedTo: {
           select: {

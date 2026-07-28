@@ -11,9 +11,9 @@ export function registerAllEventHandlers(): void {
 }
 
 // Export event bus and types
+export { EventType } from './event.types';
 export {
   eventBus,
-  EventType,
 };
 
 export * from './event.types';

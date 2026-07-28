@@ -40,9 +40,10 @@ class TelnyxMediaProvider {
       logger.info('=== ATTACHING WEBSOCKET SERVER TO HTTP SERVER ===', { httpServer: !!httpServer });
       this.server = new WebSocket.Server({ server: httpServer });
       logger.info('=== WEBSOCKET SERVER ATTACHED SUCCESSFULLY ===');
-    } catch (error) {
-      logger.error('=== WEBSOCKET SERVER ATTACHMENT FAILED ===', { error: error.message, stack: error.stack });
-      throw error;
+    } catch (err: unknown) {
+      const e = err as Error;
+      logger.error('=== WEBSOCKET SERVER ATTACHMENT FAILED ===', { error: e.message, stack: e.stack });
+      throw err;
     }
 
     this.server.on('connection', (ws: WebSocket) => {

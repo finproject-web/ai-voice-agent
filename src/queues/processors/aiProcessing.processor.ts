@@ -92,7 +92,7 @@ async function processAISummary(
   if (conversationId) {
     await prisma.conversation.update({
       where: { id: conversationId },
-      data: { summary },
+      data: { analysis: { summary } },
     });
   }
 
@@ -120,7 +120,7 @@ async function processAIExtraction(
     await prisma.conversation.update({
       where: { id: conversationId },
       data: {
-        metadata: {
+        analysis: {
           needs: extraction.needs,
           objections: extraction.objections,
           interestLevel: extraction.interestLevel,
@@ -149,7 +149,7 @@ async function processAIFollowUp(
     await prisma.conversation.update({
       where: { id: conversationId },
       data: {
-        metadata: {
+        analysis: {
           followUpMessage: followUp,
         },
       },

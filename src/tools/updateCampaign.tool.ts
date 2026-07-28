@@ -3,6 +3,9 @@ import prisma from '../config/database';
 import logger from '../config/logger';
 import eventBus, { EventType } from '../events';
 
+const VALID_CAMPAIGN_STATUSES = ['DRAFT', 'ACTIVE', 'PAUSED', 'COMPLETED', 'CANCELLED'] as const;
+type CampaignStatusType = typeof VALID_CAMPAIGN_STATUSES[number];
+
 export class UpdateCampaignTool implements ITool {
   name = 'update_campaign';
   description = 'Update campaign status or settings';
@@ -18,10 +21,32 @@ export class UpdateCampaignTool implements ITool {
     try {
       logger.info('Executing UpdateCampaign tool', { context, campaignId: params.campaignId, updates: params.updates });
 
+      // Build validated update data
+      const updateData: Record<string, any> = {};
+
+      if (params.updates.status) {
+        const upperStatus = params.updates.status.toUpperCase() as CampaignStatusType;
+        if (!VALID_CAMPAIGN_STATUSES.includes(upperStatus)) {
+          return {
+            success: false,
+            error: `Invalid campaign status: ${params.updates.status}. Valid values: ${VALID_CAMPAIGN_STATUSES.join(', ')}`,
+          };
+        }
+        updateData.status = upperStatus;
+      }
+
+      if (params.updates.priority !== undefined) {
+        updateData.priority = params.updates.priority;
+      }
+
+      if (params.updates.settings !== undefined) {
+        updateData.settings = params.updates.settings;
+      }
+
       // Update campaign
       const campaign = await prisma.campaign.update({
         where: { id: params.campaignId },
-        data: params.updates,
+        data: updateData,
       });
 
       // Emit event if status changed

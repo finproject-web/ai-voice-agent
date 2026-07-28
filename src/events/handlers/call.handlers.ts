@@ -38,7 +38,7 @@ async function handleCallAnswered(event: CallAnsweredEvent): Promise<void> {
     // Update call status
     await prisma.call.update({
       where: { id: event.callId },
-      data: { status: 'IN_PROGRESS', answeredAt: event.answeredAt },
+      data: { status: 'IN_PROGRESS', startedAt: event.answeredAt },
     });
 
     // Trigger AI agent to start conversation
@@ -67,11 +67,10 @@ async function handleCallConnected(event: any): Promise<void> {
     // Update analytics
     await prisma.analytics.create({
       data: {
-        id: `call-${event.callId}-connected`,
         tenantId: event.tenantId,
-        type: 'CALL',
-        metrics: {
-          eventType: 'connected',
+        metric: 'call_connected',
+        value: 1,
+        dimensions: {
           callId: event.callId,
           leadId: event.leadId,
           timestamp: event.timestamp,
@@ -93,9 +92,13 @@ async function handleCallTransferred(event: any): Promise<void> {
     await prisma.call.update({
       where: { id: event.callId },
       data: {
-        status: 'TRANSFERRED',
-        transferredTo: event.metadata?.to,
-        transferredAt: new Date(),
+        status: 'COMPLETED',
+        endedAt: new Date(),
+        outcome: 'transferred',
+        metadata: {
+          transferredTo: event.metadata?.to,
+          transferredAt: new Date().toISOString(),
+        },
       },
     });
 
@@ -112,7 +115,7 @@ async function handleCallEnded(event: CallEndedEvent): Promise<void> {
     await prisma.call.update({
       where: { id: event.callId },
       data: {
-        status: event.status,
+        status: (event.status as any) || 'COMPLETED',
         duration: event.duration,
         endedAt: event.endedAt,
       },
@@ -180,7 +183,7 @@ async function handleCallFailed(event: any): Promise<void> {
       data: {
         status: 'FAILED',
         endedAt: new Date(),
-        failureReason: event.metadata?.reason,
+        notes: event.metadata?.reason ? `Failure: ${event.metadata.reason}` : undefined,
       },
     });
 

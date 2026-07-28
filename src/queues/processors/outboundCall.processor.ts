@@ -44,11 +44,13 @@ export async function outboundCallProcessor(job: Job<OutboundCallJobData>): Prom
         tenantId,
         leadId,
         campaignId,
-        agentId,
-        status: 'INITIATED',
+        status: 'QUEUED',
         direction: 'OUTBOUND',
-        to: phoneNumber,
-        from: process.env.TELNYX_PHONE_NUMBER || '',
+        metadata: {
+          agentId,
+          to: phoneNumber,
+          from: process.env.TELNYX_PHONE_NUMBER || '',
+        },
       },
     });
 
@@ -73,9 +75,14 @@ export async function outboundCallProcessor(job: Job<OutboundCallJobData>): Prom
     await prisma.call.update({
       where: { id: call.id },
       data: {
-        providerCallId: callResult.callId,
         status: 'RINGING',
         startedAt: new Date(),
+        metadata: {
+          agentId,
+          to: phoneNumber,
+          from: process.env.TELNYX_PHONE_NUMBER || '',
+          providerCallId: callResult.callId,
+        },
       },
     });
 
@@ -105,7 +112,7 @@ export async function outboundCallProcessor(job: Job<OutboundCallJobData>): Prom
       where: {
         leadId,
         campaignId,
-        status: 'INITIATED',
+        status: 'QUEUED',
       },
       data: {
         status: 'FAILED',

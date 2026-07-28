@@ -75,7 +75,7 @@ export class CampaignService {
         name,
         description,
         status: 'DRAFT',
-        type: type || 'OUTBOUND',
+        type: (type || 'OUTBOUND') as any,
         script,
         voiceAgentId,
         schedule,
@@ -197,7 +197,7 @@ export class CampaignService {
 
     const updatedCampaign = await prisma.campaign.update({
       where: { id: campaignId },
-      data,
+      data: data as any,
       include: {
         createdBy: {
           select: {

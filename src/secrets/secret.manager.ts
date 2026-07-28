@@ -29,7 +29,6 @@ export class SecretManager {
           encryptedKey,
           status: 'ACTIVE',
           version: 1,
-          metadata,
         },
       });
 
@@ -116,7 +115,6 @@ export class SecretManager {
           encryptedKey,
           status: 'ACTIVE',
           version: currentApiKey.version + 1,
-          metadata: currentApiKey.metadata,
         },
       });
 

@@ -101,7 +101,7 @@ class WebSocketServer {
 
   private setupEventBusListeners(): void {
     // Listen to internal events and broadcast to WebSocket clients
-    eventBus.subscribe('*', async (event: any) => {
+    eventBus.subscribe('*' as any, async (event: any) => {
       if (event.tenantId) {
         this.broadcastToTenant(event.tenantId, event.type, event);
       }

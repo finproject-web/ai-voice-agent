@@ -18,11 +18,10 @@ async function handleLeadCreated(event: LeadCreatedEvent): Promise<void> {
     // Update lead creation analytics
     await prisma.analytics.create({
       data: {
-        id: `lead-${event.leadId}-created`,
         tenantId: event.tenantId,
-        type: 'LEAD',
-        metrics: {
-          eventType: 'created',
+        metric: 'lead_created',
+        value: 1,
+        dimensions: {
           leadId: event.leadId,
           userId: event.userId,
           timestamp: event.timestamp,
@@ -46,12 +45,10 @@ async function handleLeadImported(event: any): Promise<void> {
     // Update import analytics
     await prisma.analytics.create({
       data: {
-        id: `import-${event.tenantId}-${Date.now()}`,
         tenantId: event.tenantId,
-        type: 'IMPORT',
-        metrics: {
-          eventType: 'imported',
-          count: event.metadata?.count,
+        metric: 'lead_imported',
+        value: event.metadata?.count || 1,
+        dimensions: {
           userId: event.userId,
           timestamp: event.timestamp,
         },
@@ -98,7 +95,7 @@ async function handleLeadRejected(event: any): Promise<void> {
     // Update lead status
     await prisma.lead.update({
       where: { id: event.leadId },
-      data: { status: 'REJECTED' },
+      data: { status: 'DO_NOT_CONTACT' },
     });
 
   } catch (error) {

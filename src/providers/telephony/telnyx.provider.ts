@@ -210,4 +210,13 @@ export class TelnyxProvider implements ITelephonyProvider {
       return false;
     }
   }
+
+  async speakText(callId: string, text: string, options?: any): Promise<void> {
+    try {
+      await this.client.calls.speak(callId, { payload: text, ...options });
+    } catch (error) {
+      logger.error('Telnyx speakText failed', { error, callId });
+      throw error;
+    }
+  }
 }

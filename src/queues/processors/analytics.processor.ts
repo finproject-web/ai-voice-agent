@@ -41,89 +41,53 @@ export async function analyticsProcessor(job: Job<AnalyticsJobData>): Promise<vo
 }
 
 async function processCallAnalytics(tenantId: string, callId: string, data: Record<string, any>): Promise<void> {
-  // Update or create analytics record for the call
-  await prisma.analytics.upsert({
-    where: {
-      id: callId,
-    },
-    create: {
-      id: callId,
+  // Create analytics record for the call
+  await prisma.analytics.create({
+    data: {
       tenantId,
-      type: 'CALL',
-      metrics: data,
+      metric: 'call_analytics',
+      value: data.duration || 0,
+      dimensions: { callId, ...data },
       date: new Date(),
-    },
-    update: {
-      metrics: {
-        ...(await prisma.analytics.findUnique({ where: { id: callId } }))?.metrics || {},
-        ...data,
-      },
     },
   });
 }
 
 async function processCampaignAnalytics(tenantId: string, campaignId: string, data: Record<string, any>): Promise<void> {
-  // Update campaign analytics
-  await prisma.analytics.upsert({
-    where: {
-      id: campaignId,
-    },
-    create: {
-      id: campaignId,
+  // Create campaign analytics record
+  await prisma.analytics.create({
+    data: {
       tenantId,
-      type: 'CAMPAIGN',
-      metrics: data,
+      metric: 'campaign_analytics',
+      value: 1,
+      dimensions: { campaignId, ...data },
       date: new Date(),
-    },
-    update: {
-      metrics: {
-        ...(await prisma.analytics.findUnique({ where: { id: campaignId } }))?.metrics || {},
-        ...data,
-      },
     },
   });
 }
 
 async function processLeadAnalytics(tenantId: string, leadId: string, data: Record<string, any>): Promise<void> {
-  // Update lead analytics
-  await prisma.analytics.upsert({
-    where: {
-      id: leadId,
-    },
-    create: {
-      id: leadId,
+  // Create lead analytics record
+  await prisma.analytics.create({
+    data: {
       tenantId,
-      type: 'LEAD',
-      metrics: data,
+      metric: 'lead_analytics',
+      value: 1,
+      dimensions: { leadId, ...data },
       date: new Date(),
-    },
-    update: {
-      metrics: {
-        ...(await prisma.analytics.findUnique({ where: { id: leadId } }))?.metrics || {},
-        ...data,
-      },
     },
   });
 }
 
 async function processAgentAnalytics(tenantId: string, agentId: string, data: Record<string, any>): Promise<void> {
-  // Update agent analytics
-  await prisma.analytics.upsert({
-    where: {
-      id: agentId,
-    },
-    create: {
-      id: agentId,
+  // Create agent analytics record
+  await prisma.analytics.create({
+    data: {
       tenantId,
-      type: 'AGENT',
-      metrics: data,
+      metric: 'agent_analytics',
+      value: 1,
+      dimensions: { agentId, ...data },
       date: new Date(),
-    },
-    update: {
-      metrics: {
-        ...(await prisma.analytics.findUnique({ where: { id: agentId } }))?.metrics || {},
-        ...data,
-      },
     },
   });
 }

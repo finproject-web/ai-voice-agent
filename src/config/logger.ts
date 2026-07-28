@@ -71,7 +71,7 @@ if (config.nodeEnv === 'development') {
 }
 
 // Stream for Morgan HTTP logger
-logger.stream = {
+(logger as any).stream = {
   write: (message: string) => {
     logger.info(message.trim());
   },
