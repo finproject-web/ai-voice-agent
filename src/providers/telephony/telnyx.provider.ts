@@ -37,9 +37,17 @@ export class TelnyxProvider implements ITelephonyProvider {
       // }
 
       const call = await this.client.calls.create(callPayload);
-      const callId = call.call_control_id || call.call_control_id || call.id || call.call_leg_id;
+      const callId = call.call_control_id || call.id || call.call_leg_id;
 
-      logger.info('Telnyx outbound call created', { callId, rawCall: JSON.stringify(call).substring(0, 500) });
+      logger.info('Telnyx outbound call created', { 
+        callId, 
+        status: call.status,
+        to: call.to,
+        from: call.from,
+        keys: Object.keys(call),
+        dataKeys: call.data ? Object.keys(call.data) : undefined,
+        createdAt: call.created_at,
+      });
 
       return {
         callId,

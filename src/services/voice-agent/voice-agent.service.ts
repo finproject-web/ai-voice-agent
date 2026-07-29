@@ -306,20 +306,8 @@ export class VoiceAgentService {
       }
       this.syncAgentState(sessionId);
 
-      // Place the call only after greeting audio is ready
-      const callResult = await this.telnyxProvider.createCall({
-        to: phoneNumber,
-        webhookUrl: `${webhookUrl}/telnyx/webhook`,
-        metadata: { sessionId },
-      });
-
-      agentState.callId = callResult.callId;
-      this.agents.set(sessionId, agentState);
-
-      logger.info('Outbound call initiated', { sessionId, callId: callResult.callId, phoneNumber, webhookUrl });
-
-      // Register audio callback immediately for outbound calls
-      // (don't wait for call.answered event which may not arrive)
+      // Register audio and stream-start callbacks before placing the call
+      // so we don't miss any WebSocket events if the call answers instantly
       const telnyxMediaProvider = require('../../providers/telephony/telnyx-media.provider').default;
       let isSpeaking = false;
       let lastResponseTime = 0;
@@ -421,6 +409,18 @@ export class VoiceAgentService {
           logger.info('=== GREETING FINISHED, LISTENING ENABLED ===', { sessionId, callId: mediaCallId, greetingDurationMs });
         }, greetingDurationMs + 80);
       });
+
+      // Place the call after callbacks are ready
+      const callResult = await this.telnyxProvider.createCall({
+        to: phoneNumber,
+        webhookUrl: `${webhookUrl}/telnyx/webhook`,
+        metadata: { sessionId },
+      });
+
+      agentState.callId = callResult.callId;
+      this.agents.set(sessionId, agentState);
+
+      logger.info('Outbound call initiated', { sessionId, callId: callResult.callId, phoneNumber, webhookUrl });
 
       return callResult.callId;
     } catch (error) {
