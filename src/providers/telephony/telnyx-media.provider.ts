@@ -182,6 +182,7 @@ class TelnyxMediaProvider {
   private handleMediaFrame(message: any): void {
     const callId = message.stream_id || 'default-stream';
     const base64Payload = message.media?.payload || message.payload || message.media?.chunk;
+    const track = message.media?.track;
     
     // Log first few media messages to debug structure
     if (!this.audioBuffers.has(callId)) {
@@ -190,12 +191,21 @@ class TelnyxMediaProvider {
         keys: Object.keys(message),
         mediaKeys: message.media ? Object.keys(message.media) : 'no media field',
         hasPayload: !!base64Payload,
+        track,
         streamId: message.stream_id,
         sampleMessage: JSON.stringify(message).substring(0, 500)
       });
     }
 
     if (!base64Payload) {
+      return;
+    }
+
+    // We stream both tracks (stream_track: 'both_tracks') so we can send our
+    // own TTS audio out over the same connection. Only the caller's inbound
+    // track should ever be fed into STT — otherwise our own synthesized
+    // speech gets mixed into (and corrupts) the transcription input.
+    if (track && track !== 'inbound') {
       return;
     }
 
