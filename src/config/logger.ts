@@ -11,12 +11,21 @@ if (!fs.existsSync(logDir)) {
   fs.mkdirSync(logDir, { recursive: true });
 }
 
-// Custom log format
+// Custom log format (safe for circular objects)
+const safeInspect = (meta: any): string =>
+  util.inspect(meta, { depth: 4, maxArrayLength: 100, maxStringLength: 1000, breakLength: Infinity });
+
 const logFormat = winston.format.combine(
   winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
   winston.format.errors({ stack: true }),
   winston.format.splat(),
-  winston.format.json()
+  winston.format.printf(({ timestamp, level, message, ...metadata }) => {
+    let msg = `${timestamp} [${level}]: ${message}`;
+    if (Object.keys(metadata).length > 0) {
+      msg += ` ${safeInspect(metadata)}`;
+    }
+    return msg;
+  })
 );
 
 // Console format for development
