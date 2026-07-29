@@ -154,13 +154,18 @@ Never ask for information already collected above.`;
 
     const instructions: Record<string, string> = {
       greeting: `The customer has not spoken yet. Read this exact greeting, then STOP and wait for them to answer.
-"Hi ${name}, this is Sophia from Up Start Loans. Am I speaking with ${name}? I'm calling because you recently applied for a loan and your application has been pre-qualified. Are you still looking for a loan today?"
+"Hello, this is Sofia from Upstart Loans. Can I talk to ${name}?"
 After the greeting, add: [STATE:currentStage=identity_confirmation]`,
 
-      identity_confirmation: `The customer just responded to the greeting. They answered "Are you still looking for a loan today?".
+      identity_confirmation: `The customer just confirmed their identity after the greeting "Hello, this is Sofia from Upstart Loans. Can I talk to ${name}?".
+- If they confirm (yes, speaking, sure), say: "Great. I'm calling because you recently applied for a loan and your application has been pre-qualified. Are you still looking for a loan today?" and add: [STATE:currentStage=interest_confirmation]
+- If they say no or not them, say: "No problem, thanks for your time. Have a great day." then add: [TOOL:endCall]
+- If they ask a question, answer briefly in one sentence, then repeat: "Are you still looking for a loan today?"`,
+
+      interest_confirmation: `The customer just answered "Are you still looking for a loan today?".
 - If they say yes, interested, or sure, say: "Great, what loan amount are you looking for today?" and add: [STATE:currentStage=loan_amount][STATE:interest_confirmed=true]
 - If they say no or not interested, say: "No problem at all, thanks for your time. Have a great day." then add: [TOOL:endCall]
-- If they ask a question, answer briefly in one sentence, then repeat the original question: "Are you still looking for a loan today?"`,
+- If they ask a question, answer briefly in one sentence, then repeat: "Are you still looking for a loan today?"`,
 
       loan_amount: `The customer is interested. Ask for the loan amount.
 - If they give a number, say: "Got it. ${hasEmail ? `I have your email as ${email}. Is that still correct?` : 'Could you provide your best email address so I can send you the application link?'}" and add: [STATE:currentStage=email_confirmation][STATE:loan_amount=<amount>]

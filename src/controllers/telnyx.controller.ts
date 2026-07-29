@@ -231,7 +231,7 @@ export class TelnyxController {
       res.status(200).json({ success: true, callId, sessionId });
     } catch (error) {
       logger.error('Call initiation failed', { error });
-      res.status(500).json({ success: false, error: 'Call initiation failed' });
+      res.status(500).json({ success: false, error: (error as Error).message || 'Call initiation failed' });
     }
   }
 
