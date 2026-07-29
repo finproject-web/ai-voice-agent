@@ -363,35 +363,39 @@ export class VoiceAgentService {
 
       // Send the greeting as soon as the Telnyx media stream starts
       telnyxMediaProvider.onMediaStreamStart(async (mediaCallId: string) => {
-        const agentState = this.agents.get(sessionId);
-        if (!agentState || agentState.greetingSent) {
-          return;
-        }
+        try {
+          const agentState = this.agents.get(sessionId);
+          if (!agentState || agentState.greetingSent) {
+            return;
+          }
 
-        let audioBuffer = agentState.greetingAudioBuffer;
-        if (!audioBuffer && agentState.greetingAudioPromise) {
-          audioBuffer = await agentState.greetingAudioPromise;
-        }
-        if (!audioBuffer) {
-          audioBuffer = await this.generateGreetingAudio(sessionId);
-        }
+          let audioBuffer = agentState.greetingAudioBuffer;
+          if (!audioBuffer && agentState.greetingAudioPromise) {
+            audioBuffer = await agentState.greetingAudioPromise;
+          }
+          if (!audioBuffer) {
+            audioBuffer = await this.generateGreetingAudio(sessionId);
+          }
 
-        const greetingDurationMs = audioBuffer.length / 8;
-        const greetingStreamId = telnyxMediaProvider.getStreamId(mediaCallId);
-        logger.info('=== SENDING GREETING ON MEDIA STREAM START ===', { sessionId, callId: mediaCallId, audioSize: audioBuffer.length });
-        logger.info('=== SENDING AUDIO TO TELNYX ===', { callId: mediaCallId, streamId: greetingStreamId, payloadLength: audioBuffer.length });
-        await telnyxMediaProvider.sendAudio(mediaCallId, audioBuffer);
-        agentState.greetingSent = true;
-        this.agents.set(sessionId, agentState);
-
-        const latencyMs = agentState.callAnsweredAt ? Date.now() - agentState.callAnsweredAt : -1;
-        logger.info('=== FIRST AUDIO SENT ===', { sessionId, callId: mediaCallId, latencyMs, audioSize: audioBuffer.length, timestamp: new Date().toISOString() });
-
-        setTimeout(() => {
-          agentState.greetingFinished = true;
+          const greetingDurationMs = audioBuffer.length / 8;
+          const greetingStreamId = telnyxMediaProvider.getStreamId(mediaCallId);
+          logger.info('=== SENDING GREETING ON MEDIA STREAM START ===', { sessionId, callId: mediaCallId, audioSize: audioBuffer.length });
+          logger.info('=== SENDING AUDIO TO TELNYX ===', { callId: mediaCallId, streamId: greetingStreamId, payloadLength: audioBuffer.length });
+          await telnyxMediaProvider.sendAudio(mediaCallId, audioBuffer);
+          agentState.greetingSent = true;
           this.agents.set(sessionId, agentState);
-          logger.info('=== GREETING FINISHED, LISTENING ENABLED ===', { sessionId, callId: mediaCallId, greetingDurationMs });
-        }, greetingDurationMs + 80);
+
+          const latencyMs = agentState.callAnsweredAt ? Date.now() - agentState.callAnsweredAt : -1;
+          logger.info('=== FIRST AUDIO SENT ===', { sessionId, callId: mediaCallId, latencyMs, audioSize: audioBuffer.length, timestamp: new Date().toISOString() });
+
+          setTimeout(() => {
+            agentState.greetingFinished = true;
+            this.agents.set(sessionId, agentState);
+            logger.info('=== GREETING FINISHED, LISTENING ENABLED ===', { sessionId, callId: mediaCallId, greetingDurationMs });
+          }, greetingDurationMs + 80);
+        } catch (error: any) {
+          logger.error('=== FAILED TO SEND GREETING ON STREAM START ===', { sessionId, callId: mediaCallId, error: error?.message || error, stack: error?.stack });
+        }
       });
 
       // Place the call after callbacks are ready

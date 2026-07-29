@@ -115,6 +115,23 @@ class Server {
   }
 }
 
+// Prevent a single unhandled error from crashing the process and killing all
+// active calls. Log full details so the root cause can still be diagnosed.
+process.on('uncaughtException', (error: Error) => {
+  logger.error('=== UNCAUGHT EXCEPTION (process kept alive) ===', {
+    error: error.message,
+    stack: error.stack,
+  });
+});
+
+process.on('unhandledRejection', (reason: unknown) => {
+  const err = reason as Error;
+  logger.error('=== UNHANDLED REJECTION (process kept alive) ===', {
+    error: err?.message || reason,
+    stack: err?.stack,
+  });
+});
+
 // Start server if not in test mode
 if (config.nodeEnv !== 'test') {
   const server = new Server();
