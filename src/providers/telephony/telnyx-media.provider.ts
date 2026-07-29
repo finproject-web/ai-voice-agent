@@ -287,6 +287,9 @@ class TelnyxMediaProvider {
       // to wall-clock time keeps playback paced at a steady 20ms cadence
       // even if individual iterations run late.
       const startTime = Date.now();
+      let actualSendTimeSum = 0;
+      let prevActualSendTime: number | null = null;
+      let intervalSampleCount = 0;
 
       for (let offset = 0, frameIndex = 0; offset < audioBuffer.length; offset += chunkSize, frameIndex++) {
         const expectedSendTime = startTime + frameIndex * frameIntervalMs;
@@ -314,14 +317,32 @@ class TelnyxMediaProvider {
           }
         };
 
+        const actualSendTime = Date.now();
+        // Track deviation of actual inter-frame gap from the target 20ms so
+        // we can quantify real-world packet timing jitter for audit purposes.
+        if (prevActualSendTime !== null) {
+          actualSendTimeSum += actualSendTime - prevActualSendTime;
+          intervalSampleCount++;
+        }
+        prevActualSendTime = actualSendTime;
+
         ws.send(JSON.stringify(mediaFrame));
         chunkCount++;
       }
 
+      const avgSendIntervalMs = intervalSampleCount > 0 ? actualSendTimeSum / intervalSampleCount : 0;
+      const totalElapsedMs = Date.now() - startTime;
+
       logger.info('=== SENDING AUDIO TO TELNYX ===', { 
         callId, 
         audioSize: audioBuffer.length,
-        chunks: chunkCount
+        chunks: chunkCount,
+        packetSizeBytes: chunkSize,
+        targetPacketIntervalMs: frameIntervalMs,
+        avgActualSendIntervalMs: Math.round(avgSendIntervalMs * 100) / 100,
+        avgSendLatencyMs: Math.round((avgSendIntervalMs - frameIntervalMs) * 100) / 100,
+        totalElapsedMs,
+        expectedElapsedMs: chunkCount * frameIntervalMs
       });
     } catch (error) {
       logger.error('=== FAILED TO SEND AUDIO TO TELNYX ===', { callId, error });

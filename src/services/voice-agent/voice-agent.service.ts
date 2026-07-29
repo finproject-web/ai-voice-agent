@@ -225,7 +225,18 @@ export class VoiceAgentService {
       logger.info('=== TTS STARTED ===', { sessionId, timestamp: new Date().toISOString() });
       const ttsAudio = await this.ttsProvider.synthesize(greetingText);
       logger.info('=== TTS FINISHED ===', { sessionId, audioSize: ttsAudio.audioBuffer.length, timestamp: new Date().toISOString() });
-      logger.info('=== GREETING PCM BEFORE CONVERSION ===', { sessionId, originalPcmLength: ttsAudio.audioBuffer.length, inputSampleRate: 24000, outputSampleRate: 8000 });
+      // OpenAI TTS `response_format: 'pcm'` returns raw 16-bit signed
+      // little-endian, mono, 24kHz PCM (no header). Logged explicitly here
+      // for audio-quality audit purposes.
+      logger.info('=== GREETING PCM AUDIT ===', {
+        sessionId,
+        pcmSampleRateHz: 24000,
+        pcmChannels: 1,
+        pcmBitDepth: 16,
+        pcmByteLength: ttsAudio.audioBuffer.length,
+        pcmSampleCount: ttsAudio.audioBuffer.length / 2,
+        resampledSampleRateHz: 8000,
+      });
       const telnyxAudio = this.convertPcmToMulaw(ttsAudio.audioBuffer);
       logger.info('=== GREETING PCMU AFTER CONVERSION ===', { sessionId, pcmuLength: telnyxAudio.length, first10Bytes: telnyxAudio.slice(0, 10).toString('hex'), timestamp: new Date().toISOString() });
       logger.info('=== TTS CONVERTED TO TELNYX FORMAT ===', { sessionId, originalSize: ttsAudio.audioBuffer.length, convertedSize: telnyxAudio.length, timestamp: new Date().toISOString() });
@@ -328,8 +339,19 @@ export class VoiceAgentService {
             
             const ttsAudio = await this.ttsProvider.synthesize(response.content);
             logger.info('=== TTS AUDIO ===', { callId, audioSize: ttsAudio.audioBuffer.length });
-            logger.info('=== RESPONSE PCM BEFORE CONVERSION ===', { callId, originalPcmLength: ttsAudio.audioBuffer.length, inputSampleRate: 24000, outputSampleRate: 8000 });
-            
+            // OpenAI TTS `response_format: 'pcm'` returns raw 16-bit signed
+            // little-endian, mono, 24kHz PCM (no header). Logged explicitly
+            // here for audio-quality audit purposes.
+            logger.info('=== RESPONSE PCM AUDIT ===', {
+              callId,
+              pcmSampleRateHz: 24000,
+              pcmChannels: 1,
+              pcmBitDepth: 16,
+              pcmByteLength: ttsAudio.audioBuffer.length,
+              pcmSampleCount: ttsAudio.audioBuffer.length / 2,
+              resampledSampleRateHz: 8000,
+            });
+
             const telnyxAudio = this.convertPcmToMulaw(ttsAudio.audioBuffer);
             logger.info('=== RESPONSE PCMU AFTER CONVERSION ===', { callId, pcmuLength: telnyxAudio.length, first10Bytes: telnyxAudio.slice(0, 10).toString('hex') });
             logger.info('=== TTS CONVERTED ===', { callId, originalSize: ttsAudio.audioBuffer.length, convertedSize: telnyxAudio.length });
