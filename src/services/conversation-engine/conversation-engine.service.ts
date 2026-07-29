@@ -10,6 +10,7 @@ import {
   AIResponse,
   FunctionCall,
 } from './types';
+import { handleDeterministicStage, matchFaq, stageQuestion } from './sophia-flow';
 
 export class ConversationEngine {
   private aiProvider: IAIProvider;
@@ -341,43 +342,86 @@ If voicemail is detected, use this exact voicemail:
     context.messages.push(userMsg);
     context.lastActivity = new Date();
 
-    // Build modular system prompt from conversation state and lead data
-    const aiContext = {
-      systemPrompt: this.buildSystemPrompt(context),
-      model: this.options.model,
-      temperature: this.options.temperature,
-      maxTokens: this.options.maxTokens,
-      messages: context.messages.map((m) => ({
-        role: m.role,
-        content: m.content,
-      })),
-    };
+    const stage = context.state?.currentStage || context.currentStage || 'greeting';
 
-    let response;
-    try {
-      response = await this.aiProvider.generateResponse(aiContext, userMessage);
-    } catch (error) {
-      logger.warn('AI generation failed, using fallback response', { sessionId, error });
-      response = this.getFallbackResponse(context, userMessage);
+    // Try the deterministic stage flow first (yes/no, loan amount, email
+    // extraction). This avoids depending on the LLM to correctly self-report
+    // state markers every turn for the core sales flow.
+    const deterministic = handleDeterministicStage(stage, context, userMessage);
+
+    let spokenText: string;
+    let toolCalls: FunctionCall[];
+    let stateUpdates: Record<string, any>;
+    let responseMetadata: Record<string, any> | undefined;
+
+    if (deterministic) {
+      spokenText = deterministic.spokenText;
+      toolCalls = deterministic.toolCalls;
+      stateUpdates = deterministic.stateUpdates;
+    } else {
+      // Ambiguous input for a deterministic stage (or a free-form stage like
+      // greeting/application_guidance). Check the FAQ/objection knowledge
+      // base before falling back to the LLM.
+      const faqAnswer = matchFaq(userMessage);
+      const repeatQuestion = stageQuestion(stage, context);
+
+      if (faqAnswer) {
+        spokenText = repeatQuestion ? `${faqAnswer} ${repeatQuestion}` : faqAnswer;
+        toolCalls = [];
+        stateUpdates = {};
+      } else {
+        const aiContext = {
+          systemPrompt: this.buildSystemPrompt(context),
+          model: this.options.model,
+          temperature: this.options.temperature,
+          maxTokens: this.options.maxTokens,
+          messages: context.messages.map((m) => ({
+            role: m.role,
+            content: m.content,
+          })),
+        };
+
+        let response;
+        try {
+          response = await this.aiProvider.generateResponse(aiContext, userMessage);
+        } catch (error) {
+          logger.warn('AI generation failed, using fallback response', { sessionId, error });
+          response = this.getFallbackResponse(context, userMessage);
+        }
+
+        const parsed = this.parseResponseMarkers(response.content);
+        responseMetadata = response.metadata;
+        toolCalls = parsed.toolCalls;
+        stateUpdates = parsed.stateUpdates;
+
+        // Guarantee forward progress: if this is a deterministic stage and the
+        // LLM didn't advance it, re-ask the stage question so the call can
+        // never get permanently stuck.
+        if (repeatQuestion && !stateUpdates.currentStage && !parsed.spokenText.includes(repeatQuestion)) {
+          spokenText = `${parsed.spokenText} ${repeatQuestion}`.trim();
+        } else {
+          spokenText = parsed.spokenText;
+        }
+      }
     }
 
-    // Parse tool/state markers from the raw response
-    const parsed = this.parseResponseMarkers(response.content);
-
-    // Update context state from [STATE:...] markers
-    if (parsed.stateUpdates && Object.keys(parsed.stateUpdates).length > 0) {
-      context.state = { ...context.state, ...parsed.stateUpdates };
-      if (parsed.stateUpdates.currentStage) {
-        context.currentStage = parsed.stateUpdates.currentStage;
+    // Update context state
+    if (stateUpdates && Object.keys(stateUpdates).length > 0) {
+      context.state = { ...context.state, ...stateUpdates };
+      if (stateUpdates.currentStage) {
+        context.currentStage = stateUpdates.currentStage;
+      }
+      if (stateUpdates.customerEmail) {
+        context.customerEmail = stateUpdates.customerEmail;
       }
     }
 
     // Add assistant response (spoken text only) to context
     const assistantMsg: ConversationMessage = {
       role: 'assistant',
-      content: parsed.spokenText,
+      content: spokenText,
       timestamp: new Date(),
-      metadata: response.metadata,
+      metadata: responseMetadata,
     };
 
     context.messages.push(assistantMsg);
@@ -389,15 +433,16 @@ If voicemail is detected, use this exact voicemail:
     logger.info('Message processed', {
       sessionId,
       messageCount: context.messages.length,
-      responseLength: parsed.spokenText.length,
-      toolCalls: parsed.toolCalls.length,
-      stateUpdates: Object.keys(parsed.stateUpdates || {}),
+      responseLength: spokenText.length,
+      toolCalls: toolCalls.length,
+      stateUpdates: Object.keys(stateUpdates || {}),
+      usedDeterministic: !!deterministic,
     });
 
     return {
-      content: parsed.spokenText,
-      functionCalls: parsed.toolCalls,
-      metadata: { ...response.metadata, state: context.state },
+      content: spokenText,
+      functionCalls: toolCalls,
+      metadata: { ...responseMetadata, state: context.state },
     };
   }
 
