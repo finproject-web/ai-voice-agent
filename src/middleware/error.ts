@@ -61,10 +61,11 @@ export const errorHandler = (
     return;
   }
 
-  // Default error
+  // Default error - exposing details temporarily for debugging
   res.status(500).json({
     success: false,
-    error: 'Internal server error',
+    error: err.message || 'Internal server error',
+    stack: err.stack,
   });
 };
 
