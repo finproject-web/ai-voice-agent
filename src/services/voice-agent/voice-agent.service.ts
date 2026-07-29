@@ -60,19 +60,6 @@ export class VoiceAgentService {
 
     this.agents.set(config.sessionId, agentState);
 
-    // Pre-generate greeting audio immediately so it is ready before the customer answers
-    agentState.greetingAudioPromise = this.generateGreetingAudio(config.sessionId)
-      .then((audioBuffer) => {
-        agentState.greetingAudioBuffer = audioBuffer;
-        this.agents.set(config.sessionId, agentState);
-        return audioBuffer;
-      })
-      .catch((error) => {
-        logger.error('=== PRE-GENERATION OF GREETING FAILED ===', { sessionId: config.sessionId, error });
-        throw error;
-      });
-    this.agents.set(config.sessionId, agentState);
-
     logger.info('=== VOICE AGENT INITIALIZED ===', { 
       sessionId: config.sessionId,
       customerName: customerContext?.name,
@@ -304,17 +291,19 @@ export class VoiceAgentService {
             return audioBuffer;
           })
           .catch((error) => {
-            logger.error('Greeting audio pre-generation failed', { sessionId, error });
-            throw error;
+            logger.error('Greeting audio pre-generation failed, will retry on stream start', { sessionId, error });
+            return undefined;
           });
         this.agents.set(sessionId, agentState);
       }
 
       logger.info('=== AWAITING PRE-GENERATED GREETING ===', { sessionId });
       const greetingAudioBuffer = await agentState.greetingAudioPromise;
-      agentState.greetingAudioBuffer = greetingAudioBuffer;
-      this.agents.set(sessionId, agentState);
-      logger.info('=== PRE-GENERATED GREETING READY ===', { sessionId, audioSize: greetingAudioBuffer.length });
+      if (greetingAudioBuffer) {
+        agentState.greetingAudioBuffer = greetingAudioBuffer;
+        this.agents.set(sessionId, agentState);
+        logger.info('=== PRE-GENERATED GREETING READY ===', { sessionId, audioSize: greetingAudioBuffer.length });
+      }
       this.syncAgentState(sessionId);
 
       // Place the call only after greeting audio is ready

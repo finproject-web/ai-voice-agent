@@ -25,7 +25,7 @@ export interface VoiceAgentState {
   customerContext?: CustomerContext;
   greetingSent?: boolean;
   greetingAudioBuffer?: Buffer;
-  greetingAudioPromise?: Promise<Buffer>;
+  greetingAudioPromise?: Promise<Buffer | undefined>;
   callAnsweredAt?: number;
   greetingFinished?: boolean;
 }
