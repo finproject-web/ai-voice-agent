@@ -17,6 +17,7 @@ class TelnyxMediaProvider {
   private server: WebSocket.Server | null = null;
   private connections: Map<string, WebSocket> = new Map();
   private audioBuffers: Map<string, AudioPacket[]> = new Map();
+  private streamIds: Map<string, string> = new Map();
   private onAudioCallback?: (callId: string, audio: Buffer) => void;
   private onStreamStartCallback?: (callId: string, streamId: string) => void;
 
@@ -100,23 +101,26 @@ class TelnyxMediaProvider {
           break;
 
         case 'start':
-          const startCallId = message.start?.call_control_id || message.stream_id;
+          const streamId = message.stream_id;
+          const startCallId = message.start?.call_control_id || message.call_control_id || message.call_id || streamId;
           logger.info('=== TELNYX MEDIA STREAM STARTED ===', { 
             callId: startCallId,
-            streamId: message.stream_id,
+            streamId,
             mediaFormat: message.start?.media_format 
           });
 
           this.connections.set(startCallId, ws);
           this.audioBuffers.set(startCallId, []);
+          this.streamIds.set(startCallId, streamId);
           // Also map by stream_id for media frame lookup
-          if (message.stream_id && message.stream_id !== startCallId) {
-            this.connections.set(message.stream_id, ws);
-            this.audioBuffers.set(message.stream_id, []);
+          if (streamId && streamId !== startCallId) {
+            this.connections.set(streamId, ws);
+            this.audioBuffers.set(streamId, []);
+            this.streamIds.set(streamId, streamId);
           }
 
           if (this.onStreamStartCallback) {
-            this.onStreamStartCallback(startCallId, message.stream_id);
+            this.onStreamStartCallback(startCallId, streamId);
           }
           break;
 
@@ -261,8 +265,10 @@ class TelnyxMediaProvider {
         const chunk = audioBuffer.slice(offset, offset + chunkSize);
         const base64Audio = chunk.toString('base64');
         
+        const streamId = this.streamIds.get(callId) || callId;
         const mediaFrame = {
           event: 'media',
+          stream_id: streamId,
           media: {
             track: 'outbound',
             payload: base64Audio
