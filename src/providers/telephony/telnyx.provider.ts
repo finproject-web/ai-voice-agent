@@ -121,8 +121,11 @@ export class TelnyxProvider implements ITelephonyProvider {
         },
         body: JSON.stringify({
           stream_url: streamUrl,
-          track: 'both',
-          format: 'PCMU',
+          stream_track: 'both_tracks',
+          stream_codec: 'PCMU',
+          stream_bidirectional_mode: 'rtp',
+          stream_bidirectional_codec: 'PCMU',
+          stream_bidirectional_sampling_rate: 8000,
         }),
       });
       

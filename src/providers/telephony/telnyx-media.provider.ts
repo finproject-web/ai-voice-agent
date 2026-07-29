@@ -269,12 +269,9 @@ class TelnyxMediaProvider {
         const chunk = audioBuffer.slice(offset, offset + chunkSize);
         const base64Audio = chunk.toString('base64');
         
-        const streamId = this.streamIds.get(callId) || callId;
         const mediaFrame = {
           event: 'media',
-          stream_id: streamId,
           media: {
-            track: 'outbound',
             payload: base64Audio
           }
         };
