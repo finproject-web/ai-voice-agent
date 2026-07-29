@@ -10,6 +10,7 @@ import googleSheetsService from '../google-sheets/google-sheets.service';
 import emailService from '../email/email.service';
 import logger from '../../config/logger';
 import config from '../../config';
+import { convertPcmToMulaw as convertToMulaw } from '../../utils/mulaw';
 
 export class VoiceAgentService {
   private telnyxProvider: TelnyxProvider;
@@ -224,7 +225,9 @@ export class VoiceAgentService {
       logger.info('=== TTS STARTED ===', { sessionId, timestamp: new Date().toISOString() });
       const ttsAudio = await this.ttsProvider.synthesize(greetingText);
       logger.info('=== TTS FINISHED ===', { sessionId, audioSize: ttsAudio.audioBuffer.length, timestamp: new Date().toISOString() });
+      logger.info('=== GREETING PCM BEFORE CONVERSION ===', { sessionId, originalPcmLength: ttsAudio.audioBuffer.length, inputSampleRate: 24000, outputSampleRate: 8000 });
       const telnyxAudio = this.convertPcmToMulaw(ttsAudio.audioBuffer);
+      logger.info('=== GREETING PCMU AFTER CONVERSION ===', { sessionId, pcmuLength: telnyxAudio.length, first10Bytes: telnyxAudio.slice(0, 10).toString('hex'), timestamp: new Date().toISOString() });
       logger.info('=== TTS CONVERTED TO TELNYX FORMAT ===', { sessionId, originalSize: ttsAudio.audioBuffer.length, convertedSize: telnyxAudio.length, timestamp: new Date().toISOString() });
       return telnyxAudio;
     } catch (error: any) {
@@ -233,33 +236,8 @@ export class VoiceAgentService {
     }
   }
 
-  private linearToMuLaw(sample: number): number {
-    const BIAS = 0x84;
-    const CLIP = 32635;
-    let sign = (sample >> 8) & 0x80;
-    if (sign) sample = -sample;
-    sample = BIAS + sample;
-    if (sample > CLIP) sample = CLIP;
-    let shift = 14;
-    let n = sample >> shift;
-    while (n === 0 && shift > 3) {
-      shift--;
-      n = sample >> shift;
-    }
-    n = (sample >> (shift - 3)) & 0x0f;
-    const chord = (14 - shift) & 0x07;
-    return ~(sign | (chord << 4) | n) & 0xff;
-  }
-
   private convertPcmToMulaw(pcmBuffer: Buffer, inputSampleRate = 24000, outputSampleRate = 8000): Buffer {
-    const samples = new Int16Array(pcmBuffer.buffer, pcmBuffer.byteOffset, Math.floor(pcmBuffer.length / 2));
-    const ratio = inputSampleRate / outputSampleRate;
-    const outputLength = Math.floor(samples.length / ratio);
-    const mulawBuffer = Buffer.alloc(outputLength);
-    for (let i = 0, j = 0; j < outputLength; i += ratio, j++) {
-      mulawBuffer[j] = this.linearToMuLaw(samples[i]);
-    }
-    return mulawBuffer;
+    return convertToMulaw(pcmBuffer, inputSampleRate, outputSampleRate);
   }
 
   private syncAgentState(sessionId: string): void {
@@ -350,10 +328,14 @@ export class VoiceAgentService {
             
             const ttsAudio = await this.ttsProvider.synthesize(response.content);
             logger.info('=== TTS AUDIO ===', { callId, audioSize: ttsAudio.audioBuffer.length });
+            logger.info('=== RESPONSE PCM BEFORE CONVERSION ===', { callId, originalPcmLength: ttsAudio.audioBuffer.length, inputSampleRate: 24000, outputSampleRate: 8000 });
             
             const telnyxAudio = this.convertPcmToMulaw(ttsAudio.audioBuffer);
+            logger.info('=== RESPONSE PCMU AFTER CONVERSION ===', { callId, pcmuLength: telnyxAudio.length, first10Bytes: telnyxAudio.slice(0, 10).toString('hex') });
             logger.info('=== TTS CONVERTED ===', { callId, originalSize: ttsAudio.audioBuffer.length, convertedSize: telnyxAudio.length });
 
+            const responseStreamId = telnyxMediaProvider.getStreamId(callId);
+            logger.info('=== SENDING AUDIO TO TELNYX ===', { callId, streamId: responseStreamId, payloadLength: telnyxAudio.length });
             await telnyxMediaProvider.sendAudio(callId, telnyxAudio);
             logger.info('=== AUDIO SENT TO CALLER ===', { callId });
 
@@ -395,7 +377,9 @@ export class VoiceAgentService {
         }
 
         const greetingDurationMs = audioBuffer.length / 8;
+        const greetingStreamId = telnyxMediaProvider.getStreamId(mediaCallId);
         logger.info('=== SENDING GREETING ON MEDIA STREAM START ===', { sessionId, callId: mediaCallId, audioSize: audioBuffer.length });
+        logger.info('=== SENDING AUDIO TO TELNYX ===', { callId: mediaCallId, streamId: greetingStreamId, payloadLength: audioBuffer.length });
         await telnyxMediaProvider.sendAudio(mediaCallId, audioBuffer);
         agentState.greetingSent = true;
         this.agents.set(sessionId, agentState);

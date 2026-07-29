@@ -246,6 +246,10 @@ class TelnyxMediaProvider {
     }
   }
 
+  getStreamId(callId: string): string | undefined {
+    return this.streamIds.get(callId) || callId;
+  }
+
   /**
    * Send audio back to Telnyx media stream
    */
