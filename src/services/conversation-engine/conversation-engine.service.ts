@@ -528,48 +528,46 @@ If voicemail is detected, use this exact voicemail:
     toolCalls: FunctionCall[];
     stateUpdates: Record<string, any>;
   } {
-    const lines = raw.split('\n');
-    const spokenLines: string[] = [];
     const toolCalls: FunctionCall[] = [];
     const stateUpdates: Record<string, any> = {};
 
-    const toolRegex = /^\[TOOL:(\w+)(?:\|([^\]]*))?\]$/;
-    const stateRegex = /^\[STATE:([^=]+)=([^\]]*)\]$/;
+    // Match markers anywhere in the text (not anchored to a whole line), since
+    // the model may emit multiple markers concatenated on a single line, e.g.
+    // "[STATE:currentStage=loan_amount][STATE:interest_confirmed=true]".
+    const toolRegex = /\[TOOL:(\w+)(?:\|([^\]]*))?\]/g;
+    const stateRegex = /\[STATE:([^=\]]+)=([^\]]*)\]/g;
 
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
+    let spokenText = raw;
 
-      const toolMatch = trimmed.match(toolRegex);
-      if (toolMatch) {
-        const name = toolMatch[1];
-        const paramsStr = toolMatch[2] || '';
-        const params: Record<string, any> = {};
-        if (paramsStr) {
-          paramsStr.split('|').forEach((pair) => {
-            const [key, ...rest] = pair.split('=');
-            if (key) params[key.trim()] = rest.join('=').trim();
-          });
-        }
-        toolCalls.push({ name, parameters: params });
-        continue;
+    spokenText = spokenText.replace(toolRegex, (_match, name, paramsStr) => {
+      const params: Record<string, any> = {};
+      if (paramsStr) {
+        (paramsStr as string).split('|').forEach((pair) => {
+          const [key, ...rest] = pair.split('=');
+          if (key) params[key.trim()] = rest.join('=').trim();
+        });
       }
+      toolCalls.push({ name, parameters: params });
+      return '';
+    });
 
-      const stateMatch = trimmed.match(stateRegex);
-      if (stateMatch) {
-        const key = stateMatch[1].trim();
-        let value: any = stateMatch[2].trim();
-        if (value.toLowerCase() === 'true') value = true;
-        else if (value.toLowerCase() === 'false') value = false;
-        else if (!Number.isNaN(Number(value)) && value !== '') value = Number(value);
-        stateUpdates[key] = value;
-        continue;
-      }
+    spokenText = spokenText.replace(stateRegex, (_match, key, value) => {
+      const trimmedKey = (key as string).trim();
+      let parsedValue: any = (value as string).trim();
+      if (parsedValue.toLowerCase() === 'true') parsedValue = true;
+      else if (parsedValue.toLowerCase() === 'false') parsedValue = false;
+      else if (!Number.isNaN(Number(parsedValue)) && parsedValue !== '') parsedValue = Number(parsedValue);
+      stateUpdates[trimmedKey] = parsedValue;
+      return '';
+    });
 
-      spokenLines.push(line);
-    }
+    spokenText = spokenText
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .join('\n')
+      .trim();
 
-    const spokenText = spokenLines.join('\n').trim();
     return { spokenText, toolCalls, stateUpdates };
   }
 
