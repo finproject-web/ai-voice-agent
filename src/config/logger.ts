@@ -2,6 +2,7 @@ import winston from 'winston';
 import DailyRotateFile from 'winston-daily-rotate-file';
 import path from 'path';
 import fs from 'fs';
+import util from 'util';
 import config from './index';
 
 // Ensure log directory exists
@@ -25,7 +26,7 @@ const consoleFormat = winston.format.combine(
   winston.format.printf(({ timestamp, level, message, ...metadata }) => {
     let msg = `${timestamp} [${level}]: ${message}`;
     if (Object.keys(metadata).length > 0) {
-      msg += ` ${JSON.stringify(metadata)}`;
+      msg += ` ${util.inspect(metadata, { depth: 4, maxArrayLength: 50, maxStringLength: 500, breakLength: Infinity })}`;
     }
     return msg;
   })
