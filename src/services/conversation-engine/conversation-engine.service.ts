@@ -134,6 +134,7 @@ Never restart from Greeting.
 Never return to Interest once already confirmed.
 
 Memory so far:
+- identity_confirmed: ${state.identity_confirmed ? 'YES' : 'NO'}
 - interest_confirmed: ${state.interest_confirmed ? 'YES' : 'NO'}
 - loan_amount: ${state.loan_amount || 'not collected'}
 - email_confirmed: ${state.email_confirmed ? 'YES' : 'NO'}

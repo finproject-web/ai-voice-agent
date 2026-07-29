@@ -22,6 +22,7 @@ export interface ConversationContext {
 }
 
 export interface ConversationState {
+  identity_confirmed?: boolean;
   interest_confirmed?: boolean;
   loan_amount?: string;
   email_confirmed?: boolean;

@@ -8,15 +8,28 @@ export interface StageResult {
 
 const YES_WORDS = ['yes', 'yeah', 'yep', 'yup', 'sure', 'correct', 'right', 'speaking', 'this is', 'affirmative', 'ok', 'okay', 'go ahead', 'sounds good'];
 const NO_WORDS = ['no', 'nope', 'not interested', 'not really', 'nah', 'don\'t need', 'do not need', 'wrong number', 'not me'];
+// Common phrases that contain a bare "no" but are actually affirmative/neutral
+// in context (e.g. "no problem" said in response to a yes/no question means
+// agreement, not refusal). These must be checked before the generic NO_WORDS
+// substring match to avoid misclassifying them as negative.
+const NEGATIVE_FALSE_POSITIVES = ['no problem', 'no worries', 'not a problem', 'no issue', 'no issues'];
+
+function stripNegativeFalsePositives(text: string): string {
+  let stripped = text;
+  for (const phrase of NEGATIVE_FALSE_POSITIVES) {
+    stripped = stripped.split(phrase).join('');
+  }
+  return stripped;
+}
 
 export function isAffirmative(text: string): boolean {
-  const lower = text.toLowerCase().trim();
+  const lower = stripNegativeFalsePositives(text.toLowerCase().trim());
   if (NO_WORDS.some((w) => lower.includes(w))) return false;
   return YES_WORDS.some((w) => lower.includes(w));
 }
 
 export function isNegative(text: string): boolean {
-  const lower = text.toLowerCase().trim();
+  const lower = stripNegativeFalsePositives(text.toLowerCase().trim());
   return NO_WORDS.some((w) => lower.includes(w));
 }
 
@@ -116,6 +129,7 @@ export function stageQuestion(stage: string, context: ConversationContext): stri
   const hasEmail = !!email && email !== 'Not on file';
 
   switch (stage) {
+    case 'greeting':
     case 'identity_confirmation':
       return `Can I talk to ${name}?`;
     case 'interest_confirmation':
@@ -146,19 +160,20 @@ export function handleDeterministicStage(
   const hasEmail = !!email && email !== 'Not on file';
 
   switch (stage) {
+    case 'greeting':
     case 'identity_confirmation': {
       if (isNegative(userMessage)) {
         return {
           spokenText: 'No problem, thanks for your time. Have a great day.',
           toolCalls: [{ name: 'endCall', parameters: {} }],
-          stateUpdates: {},
+          stateUpdates: { identity_confirmed: false },
         };
       }
       if (isAffirmative(userMessage)) {
         return {
           spokenText: "Great. I'm calling because you recently applied for a loan and your application has been pre-qualified. Are you still looking for a loan today?",
           toolCalls: [],
-          stateUpdates: { currentStage: 'interest_confirmation' },
+          stateUpdates: { currentStage: 'interest_confirmation', identity_confirmed: true },
         };
       }
       return null;
@@ -202,7 +217,7 @@ export function handleDeterministicStage(
         return {
           spokenText: "Great, I'm sending the application email now.",
           toolCalls: [{ name: 'sendLoanEmail', parameters: { email } }],
-          stateUpdates: { email_confirmed: true, email_sent: true, currentStage: 'application_guidance' },
+          stateUpdates: { email_confirmed: true, email_sent: true, application_started: true, currentStage: 'application_guidance' },
         };
       }
       const newEmail = extractEmail(userMessage);
@@ -210,7 +225,7 @@ export function handleDeterministicStage(
         return {
           spokenText: "Thanks, I'll send it to that email now.",
           toolCalls: [{ name: 'sendLoanEmail', parameters: { email: newEmail } }],
-          stateUpdates: { email_confirmed: true, email_sent: true, currentStage: 'application_guidance', customerEmail: newEmail },
+          stateUpdates: { email_confirmed: true, email_sent: true, application_started: true, currentStage: 'application_guidance', customerEmail: newEmail },
         };
       }
       if (isNegative(userMessage)) {
