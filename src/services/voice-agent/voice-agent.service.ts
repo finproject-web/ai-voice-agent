@@ -490,10 +490,25 @@ export class VoiceAgentService {
     }
 
     if (!sessionId && callId) {
-      // If no session found, create one using call ID as session ID
-      sessionId = callId;
-      logger.info('=== CREATING NEW SESSION ===', { sessionId, callId, phoneNumber: payload?.to });
-      await this.initializeAgent({ sessionId, phoneNumber: payload?.to });
+      // Try to match an outbound session that hasn't received its call_control_id yet
+      const targetPhone = payload?.to;
+      for (const [id, state] of this.agents.entries()) {
+        const customerPhone = state.customerContext?.phone;
+        if (customerPhone && targetPhone && (customerPhone === targetPhone || customerPhone.replace(/\D/g, '') === targetPhone.replace(/\D/g, ''))) {
+          sessionId = id;
+          state.callId = callId;
+          this.agents.set(id, state);
+          logger.info('=== MATCHED SESSION BY PHONE NUMBER ===', { sessionId, callId, phoneNumber: targetPhone });
+          break;
+        }
+      }
+
+      // Fallback: create a new session
+      if (!sessionId) {
+        sessionId = callId;
+        logger.info('=== CREATING NEW SESSION ===', { sessionId, callId, phoneNumber: targetPhone });
+        await this.initializeAgent({ sessionId, phoneNumber: targetPhone });
+      }
     }
 
     if (!sessionId) {
