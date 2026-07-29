@@ -274,11 +274,39 @@ class TelnyxMediaProvider {
     try {
       // Telnyx media streaming expects 20 ms PCMU/mu-law frames (160 bytes at 8 kHz)
       const chunkSize = 160;
+      const frameIntervalMs = 20;
       let chunkCount = 0;
-      for (let offset = 0; offset < audioBuffer.length; offset += chunkSize) {
+      const totalChunks = Math.ceil(audioBuffer.length / chunkSize);
+
+      // Drift-corrected pacing: schedule each frame against an absolute
+      // start-time clock (startTime + frameIndex * 20ms) instead of chaining
+      // relative setTimeout(20ms) calls. Relative timers accumulate drift
+      // whenever the event loop is briefly busy (STT/TTS/HTTP work happening
+      // concurrently), causing frames to bunch up and arrive late, which
+      // Telnyx's jitter buffer perceives as choppy/breaking audio. Anchoring
+      // to wall-clock time keeps playback paced at a steady 20ms cadence
+      // even if individual iterations run late.
+      const startTime = Date.now();
+
+      for (let offset = 0, frameIndex = 0; offset < audioBuffer.length; offset += chunkSize, frameIndex++) {
+        const expectedSendTime = startTime + frameIndex * frameIntervalMs;
+        const waitMs = expectedSendTime - Date.now();
+        if (waitMs > 0) {
+          await new Promise((resolve) => setTimeout(resolve, waitMs));
+        }
+
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+          logger.warn('=== CONNECTION CLOSED MID-STREAM - ABORTING REMAINING FRAMES ===', {
+            callId,
+            chunksSent: chunkCount,
+            totalChunks,
+          });
+          break;
+        }
+
         const chunk = audioBuffer.slice(offset, offset + chunkSize);
         const base64Audio = chunk.toString('base64');
-        
+
         const mediaFrame = {
           event: 'media',
           media: {
@@ -288,9 +316,6 @@ class TelnyxMediaProvider {
 
         ws.send(JSON.stringify(mediaFrame));
         chunkCount++;
-        if (offset + chunkSize < audioBuffer.length) {
-          await new Promise((resolve) => setTimeout(resolve, 20));
-        }
       }
 
       logger.info('=== SENDING AUDIO TO TELNYX ===', { 
