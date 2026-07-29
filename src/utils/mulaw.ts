@@ -1,5 +1,3 @@
-import { Resampler } from 'audio-resampler';
-
 const BIAS = 0x84;
 const CLIP = 0x7fff;
 const SEG_UEND = [0x3f, 0x7f, 0xff, 0x1ff, 0x3ff, 0x7ff, 0xfff, 0x1fff];
@@ -61,19 +59,20 @@ export function convertPcmToMulaw(
   const inputLength = Math.floor(pcmBuffer.length / 2);
   const inputSamples = new Int16Array(pcmBuffer.buffer, pcmBuffer.byteOffset, inputLength);
 
-  const float32Array = new Float32Array(inputLength);
-  for (let i = 0; i < inputLength; i++) {
-    float32Array[i] = inputSamples[i] / 32768.0;
-  }
-
-  const resampler = new Resampler(inputSampleRate, outputSampleRate, 1);
-  const resampled = resampler.resample(float32Array);
-
-  const outputLength = resampled.length;
+  const ratio = Math.round(inputSampleRate / outputSampleRate);
+  const outputLength = Math.floor(inputLength / ratio);
   const mulawBuffer = Buffer.alloc(outputLength);
+
   for (let i = 0; i < outputLength; i++) {
-    const pcm = Math.max(-32768, Math.min(32767, Math.round(resampled[i] * 32768)));
-    mulawBuffer[i] = muLawTable[pcm + 32768];
+    const base = i * ratio;
+    let sum = 0;
+    let count = 0;
+    for (let j = 0; j < ratio && (base + j) < inputLength; j++) {
+      sum += inputSamples[base + j];
+      count++;
+    }
+    const avg = count > 0 ? Math.round(sum / count) : 0;
+    mulawBuffer[i] = muLawTable[avg + 32768];
   }
 
   return mulawBuffer;
