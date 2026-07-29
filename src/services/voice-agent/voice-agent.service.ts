@@ -424,8 +424,14 @@ export class VoiceAgentService {
       throw new Error(`Agent not found for session: ${sessionId}`);
     }
 
-    if (agentState.callId) {
-      await this.telnyxProvider.endCall(agentState.callId);
+    if (agentState.callId && agentState.isActive) {
+      try {
+        await this.telnyxProvider.endCall(agentState.callId);
+      } catch (error) {
+        // Call may have already ended on Telnyx's side (e.g. the callee
+        // hung up before we processed the webhook). This is not fatal.
+        logger.warn('Telnyx endCall failed (call likely already ended)', { sessionId, error });
+      }
     }
 
     agentState.isActive = false;
