@@ -115,7 +115,7 @@ export class OutboundCallService {
   static async holdCall(callId: string, hold: boolean = true): Promise<void> {
     try {
       const client = telnyxClient.getClient();
-      await client.calls.hold(callId, { hold });
+      await client.calls.hold({ call_control_id: callId, hold });
 
       logger.info('Telnyx call hold status changed', { callId, hold });
     } catch (error) {
@@ -133,7 +133,8 @@ export class OutboundCallService {
   ): Promise<void> {
     try {
       const client = telnyxClient.getClient();
-      await client.calls.transfer(callId, {
+      await client.calls.transfer({
+        call_control_id: callId,
         to,
         caller_name: options?.callerName,
       });
@@ -148,7 +149,7 @@ export class OutboundCallService {
   static async sendDtmf(callId: string, digits: string): Promise<void> {
     try {
       const client = telnyxClient.getClient();
-      await client.calls.sendDtmf(callId, { digits });
+      await client.calls.sendDtmf({ call_control_id: callId, digits });
 
       logger.info('DTMF sent via Telnyx', { callId, digits });
     } catch (error) {
@@ -168,7 +169,8 @@ export class OutboundCallService {
   ): Promise<void> {
     try {
       const client = telnyxClient.getClient();
-      await client.calls.speak(callId, {
+      await client.calls.speak({
+        call_control_id: callId,
         payload: text,
         language: options?.language || 'en-US',
         voice: options?.voice || 'google.en_US.standard',

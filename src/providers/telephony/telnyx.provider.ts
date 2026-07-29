@@ -36,26 +36,27 @@ export class TelnyxProvider implements ITelephonyProvider {
       //   callPayload.client_state = JSON.stringify(metadata);
       // }
 
-      const call = await this.client.calls.create(callPayload);
-      const callId = call.call_control_id || call.id || call.call_leg_id;
+      const rawResponse = await this.client.calls.create(callPayload);
+      const raw = (rawResponse && rawResponse.data) ? rawResponse.data : rawResponse;
+      const callId = raw?.call_control_id || raw?.id || raw?.call_leg_id;
 
       logger.info('Telnyx outbound call created', { 
         callId, 
-        status: call.status,
-        to: call.to,
-        from: call.from,
-        keys: Object.keys(call),
-        dataKeys: call.data ? Object.keys(call.data) : undefined,
-        createdAt: call.created_at,
+        status: raw?.status,
+        to: raw?.to,
+        from: raw?.from,
+        responseKeys: rawResponse ? Object.keys(rawResponse) : undefined,
+        dataKeys: rawResponse?.data ? Object.keys(rawResponse.data) : undefined,
+        createdAt: raw?.created_at,
       });
 
       return {
         callId,
-        status: call.status,
-        direction: call.direction,
-        to: call.to,
-        from: call.from,
-        createdAt: new Date(call.created_at),
+        status: raw?.status,
+        direction: raw?.direction,
+        to: raw?.to,
+        from: raw?.from,
+        createdAt: new Date(raw?.created_at || Date.now()),
       };
     } catch (error) {
       logger.error('Telnyx create call failed', { error, options });
@@ -65,7 +66,7 @@ export class TelnyxProvider implements ITelephonyProvider {
 
   async endCall(callId: string): Promise<void> {
     try {
-      await this.client.calls.hangup(callId);
+      await this.client.calls.hangup({ call_control_id: callId });
       logger.info('Telnyx call ended', { callId });
     } catch (error) {
       logger.error('Telnyx end call failed', { error, callId });
@@ -75,7 +76,7 @@ export class TelnyxProvider implements ITelephonyProvider {
 
   async holdCall(callId: string, hold: boolean): Promise<void> {
     try {
-      await this.client.calls.hold(callId, { hold });
+      await this.client.calls.hold({ call_control_id: callId, hold });
       logger.info('Telnyx call hold changed', { callId, hold });
     } catch (error) {
       logger.error('Telnyx hold call failed', { error, callId, hold });
@@ -85,7 +86,8 @@ export class TelnyxProvider implements ITelephonyProvider {
 
   async transferCall(callId: string, to: string, options?: any): Promise<void> {
     try {
-      await this.client.calls.transfer(callId, {
+      await this.client.calls.transfer({
+        call_control_id: callId,
         to,
         caller_name: options?.callerName,
       });
@@ -98,7 +100,7 @@ export class TelnyxProvider implements ITelephonyProvider {
 
   async sendDtmf(callId: string, digits: string): Promise<void> {
     try {
-      await this.client.calls.sendDtmf(callId, { digits });
+      await this.client.calls.sendDtmf({ call_control_id: callId, digits });
       logger.info('Telnyx DTMF sent', { callId, digits });
     } catch (error) {
       logger.error('Telnyx send DTMF failed', { error, callId, digits });
@@ -222,7 +224,7 @@ export class TelnyxProvider implements ITelephonyProvider {
 
   async speakText(callId: string, text: string, options?: any): Promise<void> {
     try {
-      await this.client.calls.speak(callId, { payload: text, ...options });
+      await this.client.calls.speak({ call_control_id: callId, payload: text, ...options });
     } catch (error) {
       logger.error('Telnyx speakText failed', { error, callId });
       throw error;

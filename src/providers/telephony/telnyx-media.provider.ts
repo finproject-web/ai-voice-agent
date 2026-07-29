@@ -101,8 +101,8 @@ class TelnyxMediaProvider {
           break;
 
         case 'start':
-          const streamId = message.stream_id;
-          const startCallId = message.start?.call_control_id || message.call_control_id || message.call_id || streamId;
+          const streamId = message.start?.stream_id || message.stream_id;
+          const startCallId = message.start?.call_control_id || message.call_control_id || message.start?.call_id || message.call_id || streamId;
           logger.info('=== TELNYX MEDIA STREAM STARTED ===', { 
             callId: startCallId,
             streamId,
