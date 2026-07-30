@@ -113,6 +113,39 @@ export const SOPHIA_FAQ: FaqEntry[] = [
   { triggers: ['speak to a human', 'talk to a person', 'live agent', 'real person', 'transfer me'], response: 'Of course, one moment while I transfer you to an account specialist.' },
 ];
 
+// Fixed, deterministic script lines for each application step (verbatim from
+// the Sophia persona's APPLICATION GUIDANCE reference). Tracking progression
+// through these here — instead of relying on the LLM to remember/report
+// which step the customer is on — is what prevents the "stuck repeating the
+// same line forever" failure mode.
+export const APPLICATION_STEP_SCRIPTS: Record<number, string> = {
+  1: "On that screen, you'll simply select my name, Sophia, as your loan assistant.",
+  2: 'You can choose any amount between two thousand and twenty five thousand dollars depending on your needs.',
+  3: "The loan term is how long you'd like your payments spread out, anywhere from six to sixty months. Choose what works best for you.",
+  4: 'Just choose the option that best matches what you plan to use the funds for.',
+  5: 'This section is just basic identity and contact information needed for the application review.',
+  6: "If you can't find your bank, that's okay. Please scroll down and select the Other option at the bottom.",
+  7: 'This step is bank verification. It helps confirm account ownership and complete the standard review process.',
+  8: 'This is the loan agreement. It explains the terms, authorization, and application review process.',
+  9: 'This confirms electronically that you want to continue with your application review.',
+  10: 'You can complete your signature using your finger on your phone or your mouse.',
+  11: 'This password gives you secure access to your application dashboard.',
+};
+export const TOTAL_APPLICATION_STEPS = Object.keys(APPLICATION_STEP_SCRIPTS).length;
+
+const PROGRESS_WORDS = ['done', 'next', 'okay', 'ok', 'got it', 'opened', 'i see it', "i'm there", 'ready', 'moved on', 'finished', 'yes', 'yeah'];
+const TRANSFER_WORDS = ['human', 'real person', 'live agent', 'speak to a person', 'talk to a person', 'representative', 'transfer me'];
+const END_WORDS = ['bye', 'goodbye', 'hang up', "that's all", 'no thanks', "i'm done", 'stop calling'];
+const HESITANT_WORDS = ['nervous', 'scared', 'not comfortable', 'unsafe', "don't trust", 'worried', 'uncomfortable'];
+const CONFUSED_WORDS = ['confused', "don't know", 'not sure', 'help me', "don't understand", 'what do i do', 'i need help'];
+
+function detectSupportMode(text: string): 'FULL_GUIDANCE' | 'HESITANT' | null {
+  const lower = text.toLowerCase();
+  if (HESITANT_WORDS.some((w) => lower.includes(w))) return 'HESITANT';
+  if (CONFUSED_WORDS.some((w) => lower.includes(w))) return 'FULL_GUIDANCE';
+  return null;
+}
+
 export function matchFaq(text: string): string | null {
   const lower = text.toLowerCase();
   for (const entry of SOPHIA_FAQ) {
@@ -140,6 +173,13 @@ export function stageQuestion(stage: string, context: ConversationContext): stri
       return hasEmail
         ? `Is ${email} still the correct email?`
         : 'Could you provide your best email address so I can send you the application link?';
+    case 'application_guidance': {
+      const step = Number(context.state?.current_application_step) || 0;
+      if (!context.state?.website_opened) {
+        return 'Please open the email and let me know once the website opens.';
+      }
+      return APPLICATION_STEP_SCRIPTS[step] || APPLICATION_STEP_SCRIPTS[1];
+    }
     default:
       return '';
   }
@@ -235,6 +275,70 @@ export function handleDeterministicStage(
           stateUpdates: {},
         };
       }
+      return null;
+    }
+
+    case 'application_guidance': {
+      const lower = userMessage.toLowerCase();
+      const state = context.state || { currentStage: stage };
+
+      if (TRANSFER_WORDS.some((w) => lower.includes(w))) {
+        return {
+          spokenText: 'Sure, one moment while I transfer you.',
+          toolCalls: [{ name: 'transferCall', parameters: { to: '4702063218' } }],
+          stateUpdates: { transferRequired: true },
+        };
+      }
+
+      if (END_WORDS.some((w) => lower.includes(w))) {
+        return {
+          spokenText: 'No problem, have a great day.',
+          toolCalls: [{ name: 'endCall', parameters: {} }],
+          stateUpdates: {},
+        };
+      }
+
+      // Gate: the customer must confirm the website/application is open
+      // before we start walking through numbered steps.
+      if (!state.website_opened) {
+        if (isAffirmative(userMessage) || PROGRESS_WORDS.some((w) => lower.includes(w))) {
+          return {
+            spokenText: `Great. ${APPLICATION_STEP_SCRIPTS[1]}`,
+            toolCalls: [],
+            stateUpdates: { website_opened: true, current_application_step: 1, application_started: true },
+          };
+        }
+        return null;
+      }
+
+      const mode = detectSupportMode(userMessage);
+
+      if (mode === 'HESITANT') {
+        return {
+          spokenText: "I completely understand your concern. Take your time, I'm here to explain anything that feels unclear.",
+          toolCalls: [],
+          stateUpdates: { customer_support_mode: 'HESITANT' },
+        };
+      }
+
+      const currentStep = Number(state.current_application_step) || 0;
+      if (currentStep >= TOTAL_APPLICATION_STEPS) {
+        return null;
+      }
+
+      if (PROGRESS_WORDS.some((w) => lower.includes(w)) || mode === 'FULL_GUIDANCE') {
+        const nextStep = currentStep === 0 ? 1 : Math.min(currentStep + 1, TOTAL_APPLICATION_STEPS);
+        return {
+          spokenText: APPLICATION_STEP_SCRIPTS[nextStep],
+          toolCalls: [],
+          stateUpdates: {
+            current_application_step: nextStep,
+            customer_support_mode: mode || state.customer_support_mode || 'SELF_SERVICE',
+            ...(nextStep >= TOTAL_APPLICATION_STEPS ? { application_completed: true } : {}),
+          },
+        };
+      }
+
       return null;
     }
 

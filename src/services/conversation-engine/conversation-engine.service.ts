@@ -9,8 +9,12 @@ import {
   ConversationMessage,
   AIResponse,
   FunctionCall,
+  StructuredAIContext,
+  StructuredCustomerContext,
+  StructuredStateContext,
 } from './types';
 import { handleDeterministicStage, matchFaq, stageQuestion } from './sophia-flow';
+import { renderSophiaSystemPrompt } from './sophia-prompt';
 
 export class ConversationEngine {
   private aiProvider: IAIProvider;
@@ -46,12 +50,46 @@ export class ConversationEngine {
     this.contexts = new Map();
   }
 
-  private buildSystemPrompt(context: ConversationContext): string {
-    const stage = context.state?.currentStage || context.currentStage || 'greeting';
+  /**
+   * Build the structured { system, customer, state, history } context that
+   * represents everything the LLM is given. `state` is always derived fresh
+   * from the deterministic sophia-flow.ts state (context.state) — the LLM
+   * only ever reads this, and its own [STATE:...] output is never merged
+   * back in (see processMessage / parseResponseMarkers usage below).
+   */
+  private buildStructuredContext(context: ConversationContext): StructuredAIContext {
+    const state = context.state || { currentStage: 'greeting' };
+
+    return {
+      system: this.getBaseSystemRole(context),
+      customer: {
+        name: context.customerName,
+        email: context.customerEmail,
+        phone: context.customerPhone || context.phoneNumber,
+        leadId: context.leadId,
+      },
+      state: {
+        greeted: !!state.greeted,
+        loanInterestConfirmed: !!(state.interest_confirmed || state.loan_interest_confirmed),
+        loanAmount: state.loan_amount,
+        emailConfirmed: !!state.email_confirmed,
+        emailSent: !!state.email_sent,
+        websiteOpened: !!state.website_opened,
+        currentApplicationStep: state.current_application_step,
+        customerSupportMode: state.customer_support_mode,
+        transferRequired: !!state.transferRequired,
+        currentStage: state.currentStage || context.currentStage || 'greeting',
+      },
+      history: context.messages.map((m) => ({ role: m.role, content: m.content })),
+    };
+  }
+
+  private buildSystemPrompt(context: ConversationContext, structured: StructuredAIContext): string {
+    const stage = structured.state.currentStage;
     const sections = [
-      this.getBaseSystemRole(),
-      this.getLeadDataSection(context),
-      this.getConversationStateSection(context),
+      structured.system,
+      this.getCustomerContextSection(structured.customer, context),
+      this.getStateSummarySection(structured.state),
       this.getStageInstructions(context),
       this.getToolsSection(),
     ];
@@ -65,21 +103,23 @@ export class ConversationEngine {
     return sections.join('\n\n');
   }
 
-  private getBaseSystemRole(): string {
+  private getBaseSystemRole(context: ConversationContext): string {
+    const name = context.customerName || 'the customer';
+    const email = context.customerEmail || 'the email on file';
+    const persona = renderSophiaSystemPrompt(name, email);
+
     return `========================
 SYSTEM ROLE
 ========================
+${persona}
 
-You are Sophia, a human loan specialist at Up Start Loans. Sound like a real person on a phone call.
-
-Rules:
-- Warm, confident, calm, and conversational.
-- Never say you are an AI or machine.
+OUTPUT RULES (do not break these regardless of the persona above):
 - One short question at a time.
 - Wait for the customer to respond before continuing.
 - Do not repeat greetings or already-answered questions.
 - Maximum two short sentences per turn.
 - Keep each turn under 120 characters whenever possible.
+- Never say you are an AI or machine.
 
 STRICT OUTPUT FORMAT:
 Return only the spoken text the customer will hear.
@@ -91,10 +131,11 @@ Hi Paul, this is Sophia from Up Start Loans. Am I speaking with Paul?
 No extra commentary. No explanations. No bullet points. Only the spoken text plus markers.`;
   }
 
-  private getLeadDataSection(context: ConversationContext): string {
-    const name = context.customerName || 'Not on file';
-    const email = context.customerEmail || 'Not on file';
-    const phone = context.customerPhone || context.phoneNumber || 'Not on file';
+  private getCustomerContextSection(customer: StructuredCustomerContext, context: ConversationContext): string {
+    const name = customer.name || 'Not on file';
+    const email = customer.email || 'Not on file';
+    const phone = customer.phone || 'Not on file';
+    const leadId = customer.leadId || 'Not on file';
     const status = context.extractedData?.status || 'Not on file';
     const workerSlot = context.extractedData?.worker_slot || 'Not assigned';
     const agentAssigned = context.extractedData?.Agent_Assigned || 'Not assigned';
@@ -108,6 +149,7 @@ LEAD DATA (source of truth)
 Name: ${name}
 Phone: ${phone}
 Email: ${email}
+Lead ID: ${leadId}
 Status: ${status}
 Worker Slot: ${workerSlot}
 Agent Assigned: ${agentAssigned}
@@ -118,33 +160,39 @@ Never ask for name, phone, or email unless one of these values is 'Not on file' 
 Use the customer's name naturally.`;
   }
 
-  private getConversationStateSection(context: ConversationContext): string {
-    const state = context.state || { currentStage: 'greeting' };
-    const stage = context.currentStage || state.currentStage || 'greeting';
-
+  /**
+   * Renders the read-only state summary shown to the LLM. This is built
+   * exclusively from the structured state object produced by
+   * buildStructuredContext(), which itself comes from context.state — the
+   * deterministic sophia-flow.ts state machine. The LLM never writes back
+   * into this; it is display-only context for generating natural language.
+   */
+  private getStateSummarySection(state: StructuredStateContext): string {
     return `========================
-CONVERSATION STATES
+CONVERSATION STATE (read-only — sophia-flow.ts controls all progression)
 ========================
 
 Allowed progression:
 Greeting → Identity Confirmation → Interest Confirmation → Loan Amount → Email Confirmation → Send Application Email → Application Guidance → Completion → Transfer if needed
 
-Current stage: ${stage}
+Current stage: ${state.currentStage}
 Never restart from Greeting.
 Never return to Interest once already confirmed.
 
 Memory so far:
-- identity_confirmed: ${state.identity_confirmed ? 'YES' : 'NO'}
-- interest_confirmed: ${state.interest_confirmed ? 'YES' : 'NO'}
-- loan_amount: ${state.loan_amount || 'not collected'}
-- email_confirmed: ${state.email_confirmed ? 'YES' : 'NO'}
-- email_sent: ${state.email_sent ? 'YES' : 'NO'}
-- application_started: ${state.application_started ? 'YES' : 'NO'}
-- application_completed: ${state.application_completed ? 'YES' : 'NO'}
-- customer_language: ${state.customer_language || 'en'}
-- last_question: ${state.last_question || 'none'}
+- greeted: ${state.greeted ? 'YES' : 'NO'}
+- loanInterestConfirmed: ${state.loanInterestConfirmed ? 'YES' : 'NO'}
+- loanAmount: ${state.loanAmount || 'not collected'}
+- emailConfirmed: ${state.emailConfirmed ? 'YES' : 'NO'}
+- emailSent: ${state.emailSent ? 'YES' : 'NO'}
+- websiteOpened: ${state.websiteOpened ? 'YES' : 'NO'}
+- currentApplicationStep: ${state.currentApplicationStep || 'none'}
+- customerSupportMode: ${state.customerSupportMode || 'not set'}
+- transferRequired: ${state.transferRequired ? 'YES' : 'NO'}
 
-Never ask for information already collected above.`;
+Never ask for information already collected above.
+If emailSent is YES, never re-offer to "send" the email/link again — reference currentApplicationStep instead and continue guidance from there.
+You cannot change any of the values above. Only sophia-flow.ts (the backend) updates this state. Focus only on generating natural spoken language.`;
   }
 
   private getStageInstructions(context: ConversationContext): string {
@@ -266,12 +314,17 @@ You MUST NOT perform actions yourself. Only request these backend tools by print
 [TOOL:endCall]
 
 You may also update memory/state by printing markers:
+[STATE:greeted=true]
 [STATE:interest_confirmed=true]
+[STATE:loan_interest_confirmed=true]
 [STATE:loan_amount=<value>]
 [STATE:email_confirmed=true]
 [STATE:email_sent=true]
+[STATE:website_opened=true]
 [STATE:application_started=true]
+[STATE:current_application_step=<step_number_or_name>]
 [STATE:application_completed=true]
+[STATE:customer_support_mode=FULL_GUIDANCE|SELF_SERVICE|FAQ_SUPPORT|HESITANT]
 [STATE:currentStage=<stage>]
 [STATE:customer_language=en|es]
 [STATE:last_question=<text>]
@@ -369,17 +422,28 @@ If voicemail is detected, use this exact voicemail:
       if (faqAnswer) {
         spokenText = repeatQuestion ? `${faqAnswer} ${repeatQuestion}` : faqAnswer;
         toolCalls = [];
-        stateUpdates = {};
+        // Deterministic classification: answering an FAQ is itself a state
+        // signal (FAQ_SUPPORT mode), set by sophia-flow's caller here, not
+        // by the LLM.
+        stateUpdates = { customer_support_mode: 'FAQ_SUPPORT' };
       } else {
+        // Build the structured { system, customer, state, history } context.
+        // `state` here always reflects sophia-flow.ts's current deterministic
+        // state — the LLM only reads it to phrase a natural response.
+        const structuredContext = this.buildStructuredContext(context);
+        logger.info('Structured AI context for LLM call', {
+          sessionId,
+          customer: structuredContext.customer,
+          state: structuredContext.state,
+          historyLength: structuredContext.history.length,
+        });
+
         const aiContext = {
-          systemPrompt: this.buildSystemPrompt(context),
+          systemPrompt: this.buildSystemPrompt(context, structuredContext),
           model: this.options.model,
           temperature: this.options.temperature,
           maxTokens: this.options.maxTokens,
-          messages: context.messages.map((m) => ({
-            role: m.role,
-            content: m.content,
-          })),
+          messages: structuredContext.history,
         };
 
         let response;
@@ -393,12 +457,23 @@ If voicemail is detected, use this exact voicemail:
         const parsed = this.parseResponseMarkers(response.content);
         responseMetadata = response.metadata;
         toolCalls = parsed.toolCalls;
-        stateUpdates = parsed.stateUpdates;
+
+        // The LLM generates natural language only. sophia-flow.ts (the
+        // deterministic state machine) is the sole authority over state, so
+        // any [STATE:...] markers the model emits are intentionally NOT
+        // merged into context.state — only logged for observability.
+        if (Object.keys(parsed.stateUpdates).length > 0) {
+          logger.info('Ignoring LLM-reported state markers (deterministic layer is authoritative)', {
+            sessionId,
+            llmReportedState: parsed.stateUpdates,
+          });
+        }
+        stateUpdates = {};
 
         // Guarantee forward progress: if this is a deterministic stage and the
         // LLM didn't advance it, re-ask the stage question so the call can
         // never get permanently stuck.
-        if (repeatQuestion && !stateUpdates.currentStage && !parsed.spokenText.includes(repeatQuestion)) {
+        if (repeatQuestion && !parsed.spokenText.includes(repeatQuestion)) {
           spokenText = `${parsed.spokenText} ${repeatQuestion}`.trim();
         } else {
           spokenText = parsed.spokenText;
@@ -617,75 +692,22 @@ If voicemail is detected, use this exact voicemail:
     return { spokenText, toolCalls, stateUpdates };
   }
 
+  /**
+   * Used only when the AI provider call throws. Previously this guessed a
+   * response from keyword buckets independent of actual state (e.g. it could
+   * say "I'll send your secure application link right now" even after the
+   * email had already been sent, since it never checked context.state) —
+   * that mismatch was a real source of stuck/looping responses. Now it
+   * always re-anchors on the actual current deterministic stage via
+   * stageQuestion(), so a fallback can never regress or contradict state.
+   */
   private getFallbackResponse(context: ConversationContext, userMessage: string): AIResponse {
-    const messageCount = context.messages.length;
-    const lowerMessage = userMessage.toLowerCase();
+    const stage = context.state?.currentStage || context.currentStage || 'greeting';
+    const question = stageQuestion(stage, context);
 
-    // First message - greeting
-    if (messageCount <= 1) {
-      return {
-        content: "Hi, this is Sophia from Up Start Loans. Am I speaking with the right person?",
-        metadata: { fallback: true, stage: 'greeting' }
-      };
-    }
-
-    // Customer confirmed identity
-    if (lowerMessage.includes('yes') || lowerMessage.includes('yeah') || lowerMessage.includes('correct')) {
-      if (messageCount <= 3) {
-        return {
-          content: "Just a quick call because you recently applied for a loan online. Are you still looking for a loan today?",
-          metadata: { fallback: true, stage: 'interest_check' }
-        };
-      }
-      // Email confirmation
-      return {
-        content: "Perfect, I'll send your secure application link right now.",
-        metadata: { fallback: true, stage: 'email_confirmation' }
-      };
-    }
-
-    // Customer interested in loan
-    if (lowerMessage.includes('interested') || lowerMessage.includes('looking') || lowerMessage.includes('want')) {
-      return {
-        content: "What loan amount are you looking for today?",
-        metadata: { fallback: true, stage: 'loan_amount' }
-      };
-    }
-
-    // Loan amount provided
-    if (lowerMessage.includes('$') || /\d+/.test(lowerMessage)) {
-      return {
-        content: "Okay, I see we have your email on file. Is this still correct?",
-        metadata: { fallback: true, stage: 'email_verification' }
-      };
-    }
-
-    // Objections
-    if (lowerMessage.includes('not interested') || lowerMessage.includes('don\'t need') || lowerMessage.includes('not looking')) {
-      return {
-        content: "That's completely okay. I just wanted to make sure you had the information available if your situation changes.",
-        metadata: { fallback: true, stage: 'objection_handled' }
-      };
-    }
-
-    if (lowerMessage.includes('busy') || lowerMessage.includes('not now') || lowerMessage.includes('bad time')) {
-      return {
-        content: "No problem. I can send the application link so you can review it when convenient.",
-        metadata: { fallback: true, stage: 'follow_up' }
-      };
-    }
-
-    if (lowerMessage.includes('human') || lowerMessage.includes('person') || lowerMessage.includes('agent')) {
-      return {
-        content: "I'll transfer you to a human agent right away.",
-        metadata: { fallback: true, stage: 'transfer' }
-      };
-    }
-
-    // Default fallback
     return {
-      content: "I understand. Let me help you with your loan application. What loan amount are you looking for?",
-      metadata: { fallback: true, stage: 'default' }
+      content: question || "Sorry, could you say that again?",
+      metadata: { fallback: true, stage },
     };
   }
 }
