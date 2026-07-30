@@ -25,12 +25,33 @@ function stripNegativeFalsePositives(text: string): string {
 export function isAffirmative(text: string): boolean {
   const lower = stripNegativeFalsePositives(text.toLowerCase().trim());
   if (NO_WORDS.some((w) => lower.includes(w))) return false;
+  // A bare "yes"/"ok" that's actually prefacing a real question (e.g. "yes,
+  // but why do you need my email?") must not be treated as a plain
+  // confirmation, or the deterministic stage would silently skip the
+  // question and jump straight to the next scripted line.
+  if (looksLikeQuestion(text)) return false;
   return YES_WORDS.some((w) => lower.includes(w));
 }
 
 export function isNegative(text: string): boolean {
   const lower = stripNegativeFalsePositives(text.toLowerCase().trim());
   return NO_WORDS.some((w) => lower.includes(w));
+}
+
+const QUESTION_WORDS = ['why', 'what', 'how', 'when', 'where', 'who', 'which', 'can i', 'can you', 'is it', 'is this', 'do i', 'does it', 'will it', 'are you'];
+
+// PROGRESS_WORDS/YES_WORDS use loose substring matching against very common
+// filler words ("ok", "yes", "done"...). Customers often preface a genuine
+// question with one of these ("okay, but why do you need my bank info?"), so
+// without this guard the deterministic layer would treat the whole utterance
+// as a bare acknowledgment, silently skip the question, and jump straight to
+// the next canned application step. Treat anything containing a "?" or a
+// question word as NOT a plain acknowledgment so it falls through to
+// FAQ/LLM handling instead.
+export function looksLikeQuestion(text: string): boolean {
+  const lower = text.toLowerCase();
+  if (lower.includes('?')) return true;
+  return QUESTION_WORDS.some((w) => lower.includes(w));
 }
 
 const NUMBER_WORDS: Record<string, number> = {
@@ -301,7 +322,7 @@ export function handleDeterministicStage(
       // Gate: the customer must confirm the website/application is open
       // before we start walking through numbered steps.
       if (!state.website_opened) {
-        if (isAffirmative(userMessage) || PROGRESS_WORDS.some((w) => lower.includes(w))) {
+        if (!looksLikeQuestion(userMessage) && (isAffirmative(userMessage) || PROGRESS_WORDS.some((w) => lower.includes(w)))) {
           return {
             spokenText: `Great. ${APPLICATION_STEP_SCRIPTS[1]}`,
             toolCalls: [],
@@ -326,7 +347,7 @@ export function handleDeterministicStage(
         return null;
       }
 
-      if (PROGRESS_WORDS.some((w) => lower.includes(w)) || mode === 'FULL_GUIDANCE') {
+      if (!looksLikeQuestion(userMessage) && (PROGRESS_WORDS.some((w) => lower.includes(w)) || mode === 'FULL_GUIDANCE')) {
         const nextStep = currentStep === 0 ? 1 : Math.min(currentStep + 1, TOTAL_APPLICATION_STEPS);
         return {
           spokenText: APPLICATION_STEP_SCRIPTS[nextStep],

@@ -16,8 +16,11 @@ function encodeLinearToMuLaw(pcm: number): number {
     mask = 0xff;
   }
 
-  // Add the bias by OR-ing
-  pcm |= BIAS;
+  // Add the bias (must be an arithmetic addition per the G.711 mu-law spec,
+  // not a bitwise OR — OR-ing corrupts the amplitude curve for any magnitude
+  // that already has overlapping bits with BIAS, producing audible
+  // distortion/muffling instead of the correct logarithmic compression).
+  pcm += BIAS;
   if (pcm > CLIP) {
     pcm = CLIP;
   }

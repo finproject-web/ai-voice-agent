@@ -127,7 +127,7 @@ const config: Config = {
   telnyxWebhookSecret: process.env.TELNYX_WEBHOOK_SECRET || '',
   telnyxMediaStreamUrl: process.env.TELNYX_MEDIA_STREAM_URL || '',
   openaiApiKey: process.env.OPENAI_API_KEY || '',
-  openaiModel: process.env.OPENAI_MODEL || 'gpt-4-turbo-preview',
+  openaiModel: process.env.OPENAI_MODEL || 'gpt-4o',
   openaiTemperature: parseFloat(process.env.OPENAI_TEMPERATURE || '0.7'),
   openaiMaxTokens: parseInt(process.env.OPENAI_MAX_TOKENS || '1000', 10),
   deepgramApiKey: process.env.DEEPGRAM_API_KEY || '',
