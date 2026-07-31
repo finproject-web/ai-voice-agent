@@ -18,6 +18,7 @@ class TelnyxMediaProvider {
   private connections: Map<string, WebSocket> = new Map();
   private audioBuffers: Map<string, AudioPacket[]> = new Map();
   private streamIds: Map<string, string> = new Map();
+  private notifiedStartCallIds: Set<string> = new Set();
   private onAudioCallback?: (callId: string, audio: Buffer) => void;
   private onStreamStartCallback?: (callId: string, streamId: string) => void;
 
@@ -112,11 +113,13 @@ class TelnyxMediaProvider {
           this.connections.set(startCallId, ws);
           this.audioBuffers.set(startCallId, []);
           this.streamIds.set(startCallId, streamId);
+          this.notifiedStartCallIds.add(startCallId);
           // Also map by stream_id for media frame lookup
           if (streamId && streamId !== startCallId) {
             this.connections.set(streamId, ws);
             this.audioBuffers.set(streamId, []);
             this.streamIds.set(streamId, streamId);
+            this.notifiedStartCallIds.add(streamId);
           }
 
           if (this.onStreamStartCallback) {
@@ -125,7 +128,7 @@ class TelnyxMediaProvider {
           break;
 
         case 'media':
-          this.handleMediaFrame(message);
+          this.handleMediaFrame(ws, message);
           break;
 
         case 'stop':
@@ -179,11 +182,25 @@ class TelnyxMediaProvider {
   /**
    * Handle media frame from Telnyx (JSON format)
    */
-  private handleMediaFrame(message: any): void {
+  private handleMediaFrame(ws: WebSocket, message: any): void {
     const callId = message.stream_id || 'default-stream';
     const base64Payload = message.media?.payload || message.payload || message.media?.chunk;
     const track = message.media?.track;
     
+    // Fallback: if we receive a media frame for a stream that never sent a
+    // separate 'start' control event, treat the first media frame as the
+    // stream start so the greeting callback can fire.
+    if (!this.notifiedStartCallIds.has(callId)) {
+      this.notifiedStartCallIds.add(callId);
+      this.connections.set(callId, ws);
+      this.audioBuffers.set(callId, []);
+      this.streamIds.set(callId, callId);
+      logger.info('=== FALLBACK STREAM START ON FIRST MEDIA FRAME ===', { callId, track });
+      if (this.onStreamStartCallback) {
+        this.onStreamStartCallback(callId, callId);
+      }
+    }
+
     // Log first few media messages to debug structure
     if (!this.audioBuffers.has(callId)) {
       logger.info('=== FIRST MEDIA FRAME STRUCTURE ===', { 
@@ -310,8 +327,10 @@ class TelnyxMediaProvider {
         const chunk = audioBuffer.slice(offset, offset + chunkSize);
         const base64Audio = chunk.toString('base64');
 
+        const responseStreamId = this.getStreamId(callId) || callId;
         const mediaFrame = {
           event: 'media',
+          stream_id: responseStreamId,
           media: {
             payload: base64Audio
           }
