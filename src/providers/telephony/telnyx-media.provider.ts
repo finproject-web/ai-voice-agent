@@ -94,7 +94,11 @@ class TelnyxMediaProvider {
 
       const message = JSON.parse(dataStr);
       
-      logger.info('=== TELNYX MESSAGE RECEIVED ===', { eventType: message.event });
+      if (message.event === 'media') {
+        logger.debug('=== TELNYX MESSAGE RECEIVED ===', { eventType: message.event });
+      } else {
+        logger.info('=== TELNYX MESSAGE RECEIVED ===', { eventType: message.event });
+      }
 
       switch (message.event) {
         case 'connected':

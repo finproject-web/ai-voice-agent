@@ -11,6 +11,7 @@ import emailService from '../email/email.service';
 import logger from '../../config/logger';
 import config from '../../config';
 import { convertPcmToMulaw as convertToMulaw } from '../../utils/mulaw';
+import telnyxMediaProvider from '../../providers/telephony/telnyx-media.provider';
 
 export class VoiceAgentService {
   private telnyxProvider: TelnyxProvider;
@@ -297,7 +298,7 @@ export class VoiceAgentService {
 
       // Register audio and stream-start callbacks before placing the call
       // so we don't miss any WebSocket events if the call answers instantly
-      const telnyxMediaProvider = require('../../providers/telephony/telnyx-media.provider').default;
+      logger.info('=== REGISTERING TELNYX MEDIA CALLBACKS ===', { sessionId });
       let isSpeaking = false;
       let lastResponseTime = 0;
 
@@ -385,6 +386,7 @@ export class VoiceAgentService {
 
       // Send the greeting as soon as the Telnyx media stream starts
       telnyxMediaProvider.onMediaStreamStart(async (mediaCallId: string) => {
+        logger.info('=== ON MEDIA STREAM START CALLBACK FIRED ===', { sessionId, callId: mediaCallId });
         try {
           const agentState = this.agents.get(sessionId);
           if (!agentState || agentState.greetingSent) {
@@ -570,14 +572,39 @@ export class VoiceAgentService {
         
         // Audio callback is already registered in makeCall. Only start streaming here.
         try {
-          const telnyxMediaProvider = require('../../providers/telephony/telnyx-media.provider').default;
-          
           // For outbound calls, we must send streaming_start via API (not Call Control JSON)
           const streamUrl = telnyxMediaProvider.getServerUrl();
           logger.info('=== STARTING MEDIA STREAMING VIA API ===', { sessionId, callId, streamUrl });
           
           await this.telnyxProvider.startMediaStreaming(callId, streamUrl);
           logger.info('=== MEDIA STREAMING STARTED SUCCESSFULLY ===', { sessionId, callId });
+
+          // Fallback: if the WebSocket start event never fires, push the greeting
+          // once the connection is established and we see a media frame.
+          setTimeout(async () => {
+            const currentState = this.agents.get(sessionId);
+            if (!currentState || currentState.greetingSent || currentState.greetingFinished) {
+              return;
+            }
+            if (!telnyxMediaProvider.isConnected(callId)) {
+              logger.warn('=== DIRECT GREETING FALLBACK: NO CONNECTION YET ===', { sessionId, callId });
+              return;
+            }
+            let audioBuffer = currentState.greetingAudioBuffer;
+            if (!audioBuffer && currentState.greetingAudioPromise) {
+              audioBuffer = await currentState.greetingAudioPromise;
+            }
+            if (!audioBuffer) {
+              logger.error('=== DIRECT GREETING FALLBACK: NO AUDIO ===', { sessionId, callId });
+              return;
+            }
+            logger.info('=== DIRECT GREETING FALLBACK: SENDING GREETING ===', { sessionId, callId, audioSize: audioBuffer.length });
+            await telnyxMediaProvider.sendAudio(callId, audioBuffer);
+            currentState.greetingSent = true;
+            currentState.greetingFinished = true;
+            this.agents.set(sessionId, currentState);
+            logger.info('=== DIRECT GREETING FALLBACK: GREETING SENT ===', { sessionId, callId });
+          }, 2500);
           
         } catch (error) {
           logger.error('=== FAILED TO START MEDIA STREAMING ===', { sessionId, callId, error });
