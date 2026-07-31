@@ -1,8 +1,6 @@
 import { google } from 'googleapis';
 import logger from '../../config/logger';
 import config from '../../config';
-import fs from 'fs';
-import path from 'path';
 
 interface LeadData {
   name?: string;
@@ -22,21 +20,13 @@ export class GoogleSheetsService {
   private sheets: any;
   private spreadsheetId: string;
   private initialized: boolean = false;
-  private tempKeyFile: string | null = null;
 
   constructor() {
     this.spreadsheetId = config.googleSheetId;
   }
 
   async cleanup(): Promise<void> {
-    if (this.tempKeyFile && require('fs').existsSync(this.tempKeyFile)) {
-      try {
-        require('fs').unlinkSync(this.tempKeyFile);
-        logger.info('Temporary service account file cleaned up');
-      } catch (e) {
-        logger.warn('Failed to clean up temporary service account file', { error: e });
-      }
-    }
+    // No-op: credentials are passed in-memory, no temp file is written to disk.
   }
 
   async initialize(): Promise<void> {
@@ -44,16 +34,15 @@ export class GoogleSheetsService {
 
     try {
       const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON || '{}');
-      
-      // Write credentials to a temporary file
-      this.tempKeyFile = path.join(process.cwd(), 'temp-service-account.json');
-      fs.writeFileSync(this.tempKeyFile, JSON.stringify(credentials, null, 2));
-      
+
+      // Pass credentials directly to avoid writing a temp file to disk,
+      // which fails under read-only/non-root filesystems (e.g. Render/Docker).
       const auth = new google.auth.JWT({
-        keyFile: this.tempKeyFile,
+        email: credentials.client_email,
+        key: credentials.private_key,
         scopes: ['https://www.googleapis.com/auth/spreadsheets'],
       });
-      
+
       this.sheets = google.sheets({ version: 'v4', auth });
       this.initialized = true;
       logger.info('Google Sheets service initialized');
