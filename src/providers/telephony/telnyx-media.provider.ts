@@ -58,10 +58,9 @@ class TelnyxMediaProvider {
 
     this.server.on('connection', (ws: WebSocket) => {
       logger.info('=== TELNYX WEBSOCKET CONNECTION ESTABLISHED ===');
-      console.log("TELNYX WEBSOCKET CONNECTED");
+      console.log('=== TELNYX WEBSOCKET CONNECTED ===');
 
       ws.on('message', (data: Buffer) => {
-        console.log("TELNYX MEDIA MESSAGE RECEIVED");
         this.handleTelnyxMessage(ws, data);
       });
 
