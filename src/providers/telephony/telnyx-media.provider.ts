@@ -375,8 +375,14 @@ class TelnyxMediaProvider {
    * Get WebSocket server URL for Telnyx
    */
   getServerUrl(): string {
+    // Prefer an explicitly configured production media stream URL (e.g. Render/hosted deployment)
+    if (config.telnyxMediaStreamUrl) {
+      logger.info('=== USING CONFIGURED TELNYX_MEDIA_STREAM_URL ===', { wsUrl: config.telnyxMediaStreamUrl });
+      return config.telnyxMediaStreamUrl;
+    }
+
     const ngrokUrl = config.ngrokUrl;
-    
+
     if (ngrokUrl) {
       // Use ngrok URL for WebSocket (Telnyx needs public URL)
       // Convert HTTPS to WSS, remove trailing slash, and add media-stream path
