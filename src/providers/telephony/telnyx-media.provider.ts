@@ -13,19 +13,12 @@ interface AudioPacket {
   timestamp: number;
 }
 
-interface RtpState {
-  ssrc: number;
-  sequenceNumber: number;
-  timestamp: number;
-}
-
 class TelnyxMediaProvider {
   private server: WebSocket.Server | null = null;
   private connections: Map<string, WebSocket> = new Map();
   private audioBuffers: Map<string, AudioPacket[]> = new Map();
   private streamIds: Map<string, string> = new Map();
   private notifiedStartCallIds: Set<string> = new Set();
-  private rtpStates: Map<string, RtpState> = new Map();
   private onAudioCallback?: (callId: string, audio: Buffer) => void;
   private onStreamStartCallback?: (callId: string, streamId: string) => void;
 
@@ -285,35 +278,6 @@ class TelnyxMediaProvider {
   }
 
   /**
-   * Build a PCMU RTP packet for an 8 kHz 20ms chunk (160 samples).
-   */
-  private buildRtpPacket(callId: string, payload: Buffer): Buffer {
-    let rtpState = this.rtpStates.get(callId);
-    if (!rtpState) {
-      rtpState = {
-        ssrc: Math.floor(Math.random() * 0xffffffff),
-        sequenceNumber: Math.floor(Math.random() * 0xffff),
-        timestamp: Math.floor(Math.random() * 0xffffffff),
-      };
-      this.rtpStates.set(callId, rtpState);
-    }
-
-    const header = Buffer.alloc(12);
-    // Byte 0: V=2, P=0, X=0, CC=0 -> 0x80
-    header.writeUInt8(0x80, 0);
-    // Byte 1: M=0, PT=0 (PCMU) -> 0x00
-    header.writeUInt8(0x00, 1);
-    header.writeUInt16BE(rtpState.sequenceNumber, 2);
-    header.writeUInt32BE(rtpState.timestamp, 4);
-    header.writeUInt32BE(rtpState.ssrc, 8);
-
-    rtpState.sequenceNumber = (rtpState.sequenceNumber + 1) % 0xffff;
-    rtpState.timestamp = (rtpState.timestamp + 160) % 0xffffffff;
-
-    return Buffer.concat([header, payload]);
-  }
-
-  /**
    * Send audio back to Telnyx media stream
    */
   async sendAudio(callId: string, audioBuffer: Buffer): Promise<void> {
@@ -325,8 +289,8 @@ class TelnyxMediaProvider {
     }
 
     try {
-      // Telnyx bidirectional RTP streaming expects 20 ms PCMU/mu-law frames
-      // (160 samples at 8 kHz), wrapped in RTP headers and base64-encoded.
+      // Telnyx bidirectional streaming (stream_bidirectional_mode: 'rtp') expects
+      // 20 ms PCMU/mu-law frames (160 bytes at 8 kHz) as base64 payloads.
       const chunkSize = 160;
       const frameIntervalMs = 20;
       let chunkCount = 0;
@@ -362,8 +326,7 @@ class TelnyxMediaProvider {
         }
 
         const chunk = audioBuffer.slice(offset, offset + chunkSize);
-        const rtpPacket = this.buildRtpPacket(callId, chunk);
-        const base64Audio = rtpPacket.toString('base64');
+        const base64Audio = chunk.toString('base64');
 
         const mediaFrame = {
           event: 'media',
@@ -415,7 +378,6 @@ class TelnyxMediaProvider {
       ws.close();
       this.connections.delete(callId);
       this.audioBuffers.delete(callId);
-      this.rtpStates.delete(callId);
     }
   }
 
