@@ -123,9 +123,6 @@ export class TelnyxProvider implements ITelephonyProvider {
           stream_url: streamUrl,
           stream_track: 'both_tracks',
           stream_codec: 'PCMU',
-          stream_bidirectional_mode: 'rtp',
-          stream_bidirectional_codec: 'PCMU',
-          stream_bidirectional_sampling_rate: 8000,
         }),
       });
       
