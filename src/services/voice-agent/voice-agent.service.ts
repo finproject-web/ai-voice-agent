@@ -268,9 +268,13 @@ export class VoiceAgentService {
     const agentState = this.agents.get(sessionId);
     if (context && agentState) {
       const stage = context.state?.currentStage || context.currentStage || 'greeting';
+      const loanAmount = context.state?.loanAmount ?? context.state?.loan_amount;
       agentState.currentStage = stage;
+      if (loanAmount !== undefined) {
+        agentState.loanAmount = loanAmount;
+      }
       this.agents.set(sessionId, agentState);
-      logger.info('=== AGENT STATE SYNCED ===', { sessionId, currentStage: stage });
+      logger.info('=== AGENT STATE SYNCED ===', { sessionId, currentStage: stage, loanAmount });
     }
   }
 

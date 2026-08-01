@@ -23,6 +23,7 @@ export interface VoiceAgentState {
   lastActivity: Date;
   callId?: string;
   customerContext?: CustomerContext;
+  loanAmount?: number | string;
   greetingSent?: boolean;
   greetingAudioBuffer?: Buffer;
   greetingAudioPromise?: Promise<Buffer | undefined>;
