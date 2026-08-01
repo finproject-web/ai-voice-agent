@@ -173,8 +173,16 @@ export class VoiceAgentService {
               logger.warn('sendLoanEmail missing email', { sessionId });
               break;
             }
-            await emailService.sendApplicationEmail(customerName, email, loanAmount);
-            logger.info('Loan application email sent', { sessionId, email });
+            // Send in the background so TTS/playback is not delayed by SMTP.
+            emailService.sendApplicationEmail(customerName, email, loanAmount)
+              .then((result) => {
+                if (result.success) {
+                  logger.info('Loan application email sent', { sessionId, email });
+                } else {
+                  logger.warn('Loan application email failed', { sessionId, email, error: result.error });
+                }
+              })
+              .catch((error) => logger.error('Loan application email send failed', { sessionId, email, error }));
             break;
           }
 
