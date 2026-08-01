@@ -24,22 +24,38 @@ export class EmailService {
   async initialize(): Promise<void> {
     if (this.initialized) return;
 
+    // Prefer an explicit SMTP_* config (useful on Render/hosted environments).
+    // Fall back to the Gmail App-Password defaults for local/dev setups.
+    const host = config.smtpHost && config.smtpHost !== 'localhost' ? config.smtpHost : 'smtp.gmail.com';
+    const port = config.smtpHost && config.smtpHost !== 'localhost' ? config.smtpPort : 587;
+    const secure = config.smtpHost && config.smtpHost !== 'localhost' ? config.smtpSecure : false;
+    const user = config.smtpUser || config.gmailUser;
+    const pass = config.smtpPassword || config.gmailAppPassword;
+    const from = config.smtpFrom && config.smtpFrom !== 'noreply@example.com' ? config.smtpFrom : (user || 'noreply@example.com');
+
+    if (!user || !pass) {
+      const msg = 'Email credentials not configured: set GMAIL_USER + GMAIL_APP_PASSWORD, or SMTP_USER + SMTP_PASSWORD';
+      logger.error(msg, { user: !!user, hasPass: !!pass });
+      throw new Error(msg);
+    }
+
     try {
       this.transporter = nodemailer.createTransport({
-        host: 'smtp.gmail.com',
-        port: 587,
-        secure: false,
-        auth: {
-          user: config.gmailUser,
-          pass: config.gmailAppPassword,
-        },
+        host,
+        port,
+        secure,
+        auth: { user, pass },
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        socketTimeout: 10000,
       });
 
+      logger.info('Initializing email transporter', { host, port, secure, user, from });
       await this.transporter.verify();
       this.initialized = true;
-      logger.info('Gmail SMTP service initialized');
+      logger.info('Email SMTP service initialized', { host, port, user });
     } catch (error) {
-      logger.error('Failed to initialize Gmail SMTP service', { error });
+      logger.error('Failed to initialize email SMTP service', { host, port, user, error });
       throw error;
     }
   }
@@ -60,12 +76,17 @@ export class EmailService {
       };
     }
 
+    const from = config.smtpFrom && config.smtpFrom !== 'noreply@example.com'
+      ? config.smtpFrom
+      : (config.smtpUser || config.gmailUser || 'noreply@example.com');
     let lastError: Error | null = null;
+
+    logger.info('Starting email send', { to: options.to, subject: options.subject, from });
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         const mailOptions = {
-          from: config.gmailUser,
+          from,
           to: options.to,
           subject: options.subject,
           text: options.text,
@@ -115,8 +136,9 @@ export class EmailService {
   async sendApplicationEmail(
     customerName: string,
     email: string,
-    loanAmount?: string
+    loanAmount?: string | number
   ): Promise<EmailResult> {
+    logger.info('Preparing application email', { customerName, to: email, loanAmount, applicationUrl: config.applicationUrl });
     const applicationUrl = config.applicationUrl;
 
     const html = `

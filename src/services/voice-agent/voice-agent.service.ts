@@ -136,9 +136,9 @@ export class VoiceAgentService {
   private async executeToolCalls(
     sessionId: string,
     functionCalls: FunctionCall[] | undefined
-  ): Promise<{ endCall: boolean; transferTo?: string }> {
+  ): Promise<{ endCall: boolean; transferTo?: string; emailInitiated?: { email: string; status: string } }> {
     const agentState = this.agents.get(sessionId);
-    const result: { endCall: boolean; transferTo?: string } = { endCall: false };
+    const result: { endCall: boolean; transferTo?: string; emailInitiated?: { email: string; status: string } } = { endCall: false };
 
     if (!functionCalls || functionCalls.length === 0) {
       return result;
@@ -168,21 +168,23 @@ export class VoiceAgentService {
           case 'sendLoanEmail': {
             const email = call.parameters?.email || agentState?.customerContext?.email;
             const customerName = agentState?.customerContext?.name || 'Customer';
-            const loanAmount = call.parameters?.loanAmount;
+            const loanAmount = call.parameters?.loanAmount || agentState?.loanAmount;
             if (!email) {
               logger.warn('sendLoanEmail missing email', { sessionId });
               break;
             }
             // Send in the background so TTS/playback is not delayed by SMTP.
+            logger.info('Initiating loan application email', { sessionId, email, customerName, loanAmount });
+            result.emailInitiated = { email, status: 'sending' };
             emailService.sendApplicationEmail(customerName, email, loanAmount)
-              .then((result) => {
-                if (result.success) {
-                  logger.info('Loan application email sent', { sessionId, email });
+              .then((emailResult) => {
+                if (emailResult.success) {
+                  logger.info('Loan application email sent', { sessionId, email, messageId: emailResult.messageId });
                 } else {
-                  logger.warn('Loan application email failed', { sessionId, email, error: result.error });
+                  logger.warn('Loan application email failed', { sessionId, email, error: emailResult.error });
                 }
               })
-              .catch((error) => logger.error('Loan application email send failed', { sessionId, email, error }));
+              .catch((error) => logger.error('Loan application email send failed', { sessionId, email, error: error?.message || error }));
             break;
           }
 
