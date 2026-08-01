@@ -1,3 +1,4 @@
+import axios from 'axios';
 import nodemailer from 'nodemailer';
 import logger from '../../config/logger';
 import config from '../../config';
@@ -67,6 +68,11 @@ export class EmailService {
   }
 
   async sendEmail(options: EmailOptions, maxRetries: number = 3): Promise<EmailResult> {
+    if (config.brevoApiKey) {
+      logger.info('Using Brevo API for email', { to: options.to, subject: options.subject });
+      return this.sendBrevoEmail(options);
+    }
+
     await this.ensureInitialized();
 
     if (!this.transporter) {
@@ -131,6 +137,54 @@ export class EmailService {
       success: false,
       error: lastError?.message || 'Unknown error',
     };
+  }
+
+  private async sendBrevoEmail(options: EmailOptions): Promise<EmailResult> {
+    const fromEmail =
+      config.smtpFrom && config.smtpFrom !== 'noreply@example.com'
+        ? config.smtpFrom
+        : (config.smtpUser || config.gmailUser || 'noreply@example.com');
+
+    try {
+      const response = await axios.post(
+        'https://api.brevo.com/v3/smtp/email',
+        {
+          sender: {
+            name: config.brevoSenderName,
+            email: fromEmail,
+          },
+          to: [{ email: options.to }],
+          subject: options.subject,
+          ...(options.html ? { htmlContent: options.html } : {}),
+          ...(options.text ? { textContent: options.text } : {}),
+        },
+        {
+          headers: {
+            'api-key': config.brevoApiKey,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      const messageId = response.data?.messageId || response.data?.messageIds?.[0];
+      logger.info('Email sent successfully via Brevo API', { to: options.to, messageId });
+
+      return { success: true, messageId };
+    } catch (error) {
+      const err = error as any;
+      const brevoError =
+        err?.response?.data?.message ||
+        err?.response?.data?.code ||
+        err?.message ||
+        'Brevo API error';
+      logger.error('Brevo API email send failed', {
+        to: options.to,
+        status: err?.response?.status,
+        error: brevoError,
+      });
+
+      return { success: false, error: brevoError };
+    }
   }
 
   async sendApplicationEmail(

@@ -76,6 +76,10 @@ interface Config {
   smtpPassword: string;
   smtpFrom: string;
 
+  // Brevo API
+  brevoApiKey: string;
+  brevoSenderName: string;
+
   // Redis
   redisHost: string;
   redisPort: number;
@@ -155,6 +159,11 @@ const config: Config = {
   smtpUser: process.env.SMTP_USER || '',
   smtpPassword: process.env.SMTP_PASSWORD || '',
   smtpFrom: process.env.SMTP_FROM || 'noreply@example.com',
+  brevoApiKey: (process.env.BREVO_API_KEY || '')
+    .replace(/^["']|["']$/g, '')
+    .split(/[\r\n]+/)[0]
+    .trim(),
+  brevoSenderName: process.env.BREVO_SENDER_NAME || 'Up Start Loans',
   redisHost: process.env.REDIS_HOST || 'localhost',
   redisPort: parseInt(process.env.REDIS_PORT || '6379', 10),
   redisPassword: process.env.REDIS_PASSWORD || '',
