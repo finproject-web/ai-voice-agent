@@ -323,7 +323,7 @@ export class VoiceAgentService {
         }
 
         // Debounce: short pause after AI speaks before listening again
-        if (Date.now() - lastResponseTime < 800) {
+        if (Date.now() - lastResponseTime < 300) {
           return;
         }
 

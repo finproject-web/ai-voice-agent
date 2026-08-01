@@ -162,7 +162,14 @@ const CONFUSED_WORDS = ['confused', "don't know", 'not sure', 'help me', "don't 
 // Only treat these explicit phrases as confirmation the customer is actually on the website.
 const WEBSITE_OPENED_WORDS = ['opened', 'i see it', 'i see the', 'i can see it', "i'm there", 'i am there', 'it loaded', 'page loaded', 'loaded', 'website open', 'site open', 'app open'];
 // Phrases meaning the customer did not receive or cannot find the email.
-const EMAIL_NOT_RECEIVED_WORDS = ["didn't get", 'did not get', "haven't got", 'have not got', 'not received', "didn't receive", 'did not receive', 'no email', "can't find", 'cannot find', "don't see", 'do not see', 'not there', 'not in my inbox', 'not in inbox', 'inbox empty', 'no link'];
+// STT may drop apostrophes, so include both contracted and uncontracted forms.
+const EMAIL_NOT_RECEIVED_WORDS = [
+  "didn't get", 'did not get', "didnt get", 'didnt get it', "didn't get it", 'did not get it',
+  "haven't got", 'have not got', "didn't receive", 'did not receive', "didnt receive", 'didnt receive it',
+  'not received', 'never got', 'never received', 'no email', 'no link', 'no mail', 'nothing in my inbox',
+  "can't find", 'cannot find', 'cant find', "don't see", 'do not see', 'dont see', 'dont see it',
+  'not there', 'not in my inbox', 'not in inbox', 'inbox empty', 'where is the email', 'where is it',
+];
 
 function detectSupportMode(text: string): 'FULL_GUIDANCE' | 'HESITANT' | null {
   const lower = text.toLowerCase();

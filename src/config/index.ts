@@ -139,8 +139,14 @@ const config: Config = {
   nvidiaApiKey: process.env.NVIDIA_API_KEY || '',
   googleSheetId: process.env.GOOGLE_SHEET_ID || '',
   googleServiceAccountJson: process.env.GOOGLE_SERVICE_ACCOUNT_JSON || '{}',
-  gmailUser: process.env.GMAIL_USER || '',
-  gmailAppPassword: process.env.GMAIL_APP_PASSWORD || '',
+  gmailUser: (process.env.GMAIL_USER || '')
+    .replace(/^["']|["']$/g, '')
+    .split(/[\r\n]+/)[0]
+    .trim(),
+  gmailAppPassword: (process.env.GMAIL_APP_PASSWORD || '')
+    .replace(/^["']|["']$/g, '')
+    .split(/[\r\n]+/)[0]
+    .replace(/\s/g, ''),
   applicationUrl: process.env.APPLICATION_URL || '',
   humanTransferNumber: process.env.HUMAN_TRANSFER_NUMBER || '',
   smtpHost: process.env.SMTP_HOST || 'localhost',
