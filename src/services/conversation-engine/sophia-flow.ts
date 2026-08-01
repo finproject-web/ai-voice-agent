@@ -159,6 +159,10 @@ const TRANSFER_WORDS = ['human', 'real person', 'live agent', 'speak to a person
 const END_WORDS = ['bye', 'goodbye', 'hang up', "that's all", 'no thanks', "i'm done", 'stop calling'];
 const HESITANT_WORDS = ['nervous', 'scared', 'not comfortable', 'unsafe', "don't trust", 'worried', 'uncomfortable'];
 const CONFUSED_WORDS = ['confused', "don't know", 'not sure', 'help me', "don't understand", 'what do i do', 'i need help'];
+// Only treat these explicit phrases as confirmation the customer is actually on the website.
+const WEBSITE_OPENED_WORDS = ['opened', 'i see it', 'i see the', 'i can see it', "i'm there", 'i am there', 'it loaded', 'page loaded', 'loaded', 'website open', 'site open', 'app open'];
+// Phrases meaning the customer did not receive or cannot find the email.
+const EMAIL_NOT_RECEIVED_WORDS = ["didn't get", 'did not get', "haven't got", 'have not got', 'not received', "didn't receive", 'did not receive', 'no email', "can't find", 'cannot find', "don't see", 'do not see', 'not there', 'not in my inbox', 'not in inbox', 'inbox empty', 'no link'];
 
 function detectSupportMode(text: string): 'FULL_GUIDANCE' | 'HESITANT' | null {
   const lower = text.toLowerCase();
@@ -319,10 +323,20 @@ export function handleDeterministicStage(
         };
       }
 
+      // If the customer says they did not get the email, resend it and
+      // reset the website-opened gate so we wait for them to actually open it.
+      if (EMAIL_NOT_RECEIVED_WORDS.some((w) => lower.includes(w))) {
+        return {
+          spokenText: "I apologize, let me resend it right now. Please check your inbox and spam folder. Let me know once the website opens.",
+          toolCalls: [{ name: 'sendLoanEmail', parameters: { email: context.customerEmail } }],
+          stateUpdates: { website_opened: false, current_application_step: 0 },
+        };
+      }
+
       // Gate: the customer must confirm the website/application is open
       // before we start walking through numbered steps.
       if (!state.website_opened) {
-        if (!looksLikeQuestion(userMessage) && (isAffirmative(userMessage) || PROGRESS_WORDS.some((w) => lower.includes(w)))) {
+        if (WEBSITE_OPENED_WORDS.some((w) => lower.includes(w))) {
           return {
             spokenText: `Great. ${APPLICATION_STEP_SCRIPTS[1]}`,
             toolCalls: [],
