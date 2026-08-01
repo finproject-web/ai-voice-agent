@@ -218,6 +218,7 @@ export class VoiceAgentService {
         ...context.state,
         currentStage: 'identity_confirmation',
         last_question: 'Can I talk to you?',
+        greeted: true,
       };
       context.lastActivity = new Date();
       this.conversationEngine.updateContext(sessionId, { messages: context.messages, state: context.state, lastActivity: new Date() });

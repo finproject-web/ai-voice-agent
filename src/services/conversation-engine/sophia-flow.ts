@@ -276,7 +276,7 @@ export function handleDeterministicStage(
     case 'email_confirmation': {
       if (hasEmail && isAffirmative(userMessage) && !extractEmail(userMessage)) {
         return {
-          spokenText: "Great, I'm sending the application email now.",
+          spokenText: "Great, I'm sending the application email now. Please open the email and let me know once the website opens.",
           toolCalls: [{ name: 'sendLoanEmail', parameters: { email } }],
           stateUpdates: { email_confirmed: true, email_sent: true, application_started: true, currentStage: 'application_guidance' },
         };
@@ -284,7 +284,7 @@ export function handleDeterministicStage(
       const newEmail = extractEmail(userMessage);
       if (newEmail) {
         return {
-          spokenText: "Thanks, I'll send it to that email now.",
+          spokenText: "Thanks, I'll send it to that email now. Please open the email and let me know once the website opens.",
           toolCalls: [{ name: 'sendLoanEmail', parameters: { email: newEmail } }],
           stateUpdates: { email_confirmed: true, email_sent: true, application_started: true, currentStage: 'application_guidance', customerEmail: newEmail },
         };
