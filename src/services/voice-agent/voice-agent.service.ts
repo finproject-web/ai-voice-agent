@@ -346,8 +346,11 @@ export class VoiceAgentService {
         if (!agentState?.greetingFinished) {
           return;
         }
-        // Only process audio from this session's own call (ignore raw/echo streams)
-        if (callId === 'raw-stream' || (agentState.callId && agentState.callId !== callId)) {
+        // Ignore raw/echo streams and audio from other sessions
+        if (callId === 'raw-stream') {
+          return;
+        }
+        if (agentState.streamId && agentState.streamId !== callId) {
           return;
         }
         // Skip processing while AI is speaking or in the echo window after it stops
@@ -408,8 +411,8 @@ export class VoiceAgentService {
               await this.endCall(sessionId);
               return;
             }
-            if (toolResult.transferTo && callId) {
-              await this.telnyxProvider.transferCall(callId, toolResult.transferTo);
+            if (toolResult.transferTo && agentState?.callId) {
+              await this.telnyxProvider.transferCall(agentState.callId, toolResult.transferTo);
               return;
             }
 
@@ -427,8 +430,8 @@ export class VoiceAgentService {
       });
 
       // Send the greeting as soon as the Telnyx media stream starts
-      telnyxMediaProvider.onMediaStreamStart(async (mediaCallId: string) => {
-        logger.info('=== ON MEDIA STREAM START CALLBACK FIRED ===', { sessionId, callId: mediaCallId });
+      telnyxMediaProvider.onMediaStreamStart(async (mediaCallId: string, streamId: string) => {
+        logger.info('=== ON MEDIA STREAM START CALLBACK FIRED ===', { sessionId, callId: mediaCallId, streamId });
         try {
           const agentState = this.agents.get(sessionId);
           if (!agentState || agentState.greetingSent) {
@@ -444,13 +447,15 @@ export class VoiceAgentService {
           }
 
           const greetingDurationMs = audioBuffer.length / 8;
-          const greetingStreamId = telnyxMediaProvider.getStreamId(mediaCallId);
+          const greetingStreamId = streamId || telnyxMediaProvider.getStreamId(mediaCallId);
           logger.info('=== SENDING GREETING ON MEDIA STREAM START ===', { sessionId, callId: mediaCallId, audioSize: audioBuffer.length });
           logger.info('=== SENDING AUDIO TO TELNYX ===', { callId: mediaCallId, streamId: greetingStreamId, payloadLength: audioBuffer.length });
-          await telnyxMediaProvider.sendAudio(mediaCallId, audioBuffer);
+          // Mark as sent before the slow send so the direct fallback does not race
           agentState.greetingSent = true;
           agentState.callId = mediaCallId;
+          agentState.streamId = greetingStreamId;
           this.agents.set(sessionId, agentState);
+          await telnyxMediaProvider.sendAudio(mediaCallId, audioBuffer);
 
           const latencyMs = agentState.callAnsweredAt ? Date.now() - agentState.callAnsweredAt : -1;
           logger.info('=== FIRST AUDIO SENT ===', { sessionId, callId: mediaCallId, latencyMs, audioSize: audioBuffer.length, timestamp: new Date().toISOString() });
@@ -644,11 +649,18 @@ export class VoiceAgentService {
               logger.error('=== DIRECT GREETING FALLBACK: NO AUDIO ===', { sessionId, callId });
               return;
             }
+            const greetingDurationMs = audioBuffer.length / 8;
             logger.info('=== DIRECT GREETING FALLBACK: SENDING GREETING ===', { sessionId, callId, audioSize: audioBuffer.length });
-            await telnyxMediaProvider.sendAudio(callId, audioBuffer);
+            // Mark as sent before the slow send so other paths don't race
             currentState.greetingSent = true;
-            currentState.greetingFinished = true;
             this.agents.set(sessionId, currentState);
+            await telnyxMediaProvider.sendAudio(callId, audioBuffer);
+            setTimeout(() => {
+              if (currentState) {
+                currentState.greetingFinished = true;
+                this.agents.set(sessionId, currentState);
+              }
+            }, greetingDurationMs + 300);
             logger.info('=== DIRECT GREETING FALLBACK: GREETING SENT ===', { sessionId, callId });
           }, 2500);
           

@@ -22,6 +22,7 @@ export interface VoiceAgentState {
   currentStage: string;
   lastActivity: Date;
   callId?: string;
+  streamId?: string;
   customerContext?: CustomerContext;
   loanAmount?: number | string;
   greetingSent?: boolean;
