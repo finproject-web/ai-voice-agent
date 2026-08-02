@@ -382,7 +382,7 @@ export function handleDeterministicStage(
 
       // Phase 2: the customer needs to open the website
       if (subStep === 'website_open') {
-        if (WEBSITE_OPENED_WORDS.some((w) => lower.includes(w))) {
+        if (isAffirmative(userMessage) || lower.includes('its open') || lower.includes("it's open") || lower.includes('it is open') || lower.includes('is open') || lower.includes(' open') || lower.includes('opened') || lower.includes('i opened it') || lower.includes('opened it') || lower.includes('website open') || lower.includes('site open') || lower.includes('app open') || lower.includes('loaded') || lower.includes('i see it') || lower.includes('page loaded') || lower.includes('it loaded')) {
           return {
             spokenText: 'Great. What do you see on the screen?',
             toolCalls: [],
