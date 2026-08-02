@@ -6,7 +6,7 @@ export interface StageResult {
   stateUpdates: Record<string, any>;
 }
 
-const YES_WORDS = ['yes', 'yeah', 'yep', 'yup', 'sure', 'correct', 'right', 'speaking', 'this is', 'affirmative', 'ok', 'okay', 'go ahead', 'sounds good'];
+const YES_WORDS = ['yes', 'yeah', 'yep', 'yup', 'sure', 'correct', 'right', 'speaking', 'this is', 'affirmative', 'ok', 'okay', 'go ahead', 'sounds good', 'good', 'fine'];
 const NO_WORDS = ['no', 'nope', 'not interested', 'not really', 'nah', 'don\'t need', 'do not need', 'wrong number', 'not me'];
 // Common phrases that contain a bare "no" but are actually affirmative/neutral
 // in context (e.g. "no problem" said in response to a yes/no question means
