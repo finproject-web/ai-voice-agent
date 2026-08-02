@@ -140,7 +140,7 @@ export const SOPHIA_FAQ: FaqEntry[] = [
 // which step the customer is on — is what prevents the "stuck repeating the
 // same line forever" failure mode.
 export const APPLICATION_STEP_SCRIPTS: Record<number, string> = {
-  1: "On that screen, you'll simply select my name, Sophia, as your loan assistant.",
+  1: 'Please select my name, Sophia Jones.',
   2: 'You can choose any amount between two thousand and twenty five thousand dollars depending on your needs.',
   3: "The loan term is how long you'd like your payments spread out, anywhere from six to sixty months. Choose what works best for you.",
   4: 'Just choose the option that best matches what you plan to use the funds for.',
@@ -300,7 +300,7 @@ export function handleDeterministicStage(
         return {
           spokenText,
           toolCalls: [],
-          stateUpdates: { currentStage: 'email_confirmation', loan_amount: amount, ...(hasEmail ? { email_confirmed: true } : {}) },
+          stateUpdates: { currentStage: 'email_confirmation', loan_amount: amount },
         };
       }
       return null;
@@ -413,8 +413,13 @@ export function handleDeterministicStage(
 
       // Customer describes the current or a new screen, or is ahead
       if (detectedStep) {
+        let instruction = APPLICATION_STEP_SCRIPTS[detectedStep];
+        if (detectedStep === 2 && state.loan_amount) {
+          const amount = String(state.loan_amount).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+          instruction = `Enter the $${amount} amount we discussed.`;
+        }
         return {
-          spokenText: `Perfect. ${APPLICATION_STEP_SCRIPTS[detectedStep]}`,
+          spokenText: `Perfect. ${instruction}`,
           toolCalls: [],
           stateUpdates: { current_application_step: String(detectedStep) },
         };
