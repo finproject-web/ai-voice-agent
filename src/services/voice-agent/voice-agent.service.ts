@@ -260,8 +260,8 @@ export class VoiceAgentService {
         sumAbs += a;
       }
       const avgAbs = Math.round(sumAbs / sampleCount);
-      const targetPeak = 24000; // leave ~ -3 dBFS headroom
-      const maxGain = 3;        // do not boost more than +9.5 dB to avoid noise
+      const targetPeak = 32767; // full scale so the greeting matches the loud later responses
+      const maxGain = 20;       // allow up to ~26 dB boost for the very quiet greeting
       const gain = Math.min(maxGain, maxAbs > 0 ? targetPeak / maxAbs : 1);
       const scaledBuffer = Buffer.alloc(ttsAudio.audioBuffer.length);
       for (let i = 0; i < sampleCount; i++) {
