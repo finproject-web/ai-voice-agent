@@ -203,9 +203,7 @@ You cannot change any of the values above. Only sophia-flow.ts (the backend) upd
     const hasEmail = email && email !== 'Not on file' && email !== 'the email on file';
 
     const instructions: Record<string, string> = {
-      greeting: `The customer has not spoken yet. Read this exact greeting, then STOP and wait for them to answer.
-"Hi ${name}, this is Sophia from Up Start Loans. How are you doing today?"
-After the greeting, add: [STATE:currentStage=identity_confirmation]`,
+      greeting: `The customer has already been greeted. Do NOT say the greeting again. If they have not spoken yet, simply stop and wait. If they have responded, use the identity_confirmation instructions.`,
 
       identity_confirmation: `The customer just responded to the greeting "Hi ${name}, this is Sophia from Up Start Loans. How are you doing today?".
 - If they respond with any greeting or positively (good, fine, great, yes, etc.), say: "I'm glad to hear that. I called today because you had submitted an online request regarding a loan, and I wanted to check whether you're still interested." and add: [STATE:currentStage=interest_confirmation]
@@ -357,10 +355,10 @@ If voicemail is detected, use this exact voicemail:
     const context: ConversationContext = {
       sessionId,
       messages: [],
-      currentStage: 'greeting',
+      currentStage: 'identity_confirmation',
       extractedData: {},
       lastActivity: new Date(),
-      state: { currentStage: 'greeting' },
+      state: { currentStage: 'identity_confirmation' },
       toolLog: [],
       ...initialData,
     };

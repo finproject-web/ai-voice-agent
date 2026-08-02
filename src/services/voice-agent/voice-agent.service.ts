@@ -358,7 +358,7 @@ export class VoiceAgentService {
           return;
         }
         // Debounce: wait a longer pause after the AI speaks before listening again
-        if (Date.now() - lastResponseTime < 700) {
+        if (Date.now() - lastResponseTime < 1200) {
           return;
         }
 
@@ -466,6 +466,8 @@ export class VoiceAgentService {
               currentState.greetingFinished = true;
               this.agents.set(sessionId, currentState);
             }
+            // Start the echo guard now so the tail of the greeting does not loop
+            lastResponseTime = Date.now();
             logger.info('=== GREETING FINISHED, LISTENING ENABLED ===', { sessionId, callId: mediaCallId, greetingDurationMs });
           }, greetingDurationMs + 300);
         } catch (error: any) {
