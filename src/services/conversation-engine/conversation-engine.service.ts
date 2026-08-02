@@ -204,13 +204,13 @@ You cannot change any of the values above. Only sophia-flow.ts (the backend) upd
 
     const instructions: Record<string, string> = {
       greeting: `The customer has not spoken yet. Read this exact greeting, then STOP and wait for them to answer.
-"Hello, this is Sofia from Upstart Loans. Can I talk to ${name}?"
+"Hi ${name}, this is Sophia from Up Start Loans. How are you doing today?"
 After the greeting, add: [STATE:currentStage=identity_confirmation]`,
 
-      identity_confirmation: `The customer just confirmed their identity after the greeting "Hello, this is Sofia from Upstart Loans. Can I talk to ${name}?".
-- If they confirm (yes, speaking, sure), say: "Great. I'm calling because you recently applied for a loan and your application has been pre-qualified. Are you still looking for a loan today?" and add: [STATE:currentStage=interest_confirmation]
+      identity_confirmation: `The customer just responded to the greeting "Hi ${name}, this is Sophia from Up Start Loans. How are you doing today?".
+- If they respond with any greeting or positively (good, fine, great, yes, etc.), say: "I'm glad to hear that. I called today because you had submitted an online request regarding a loan, and I wanted to check whether you're still interested." and add: [STATE:currentStage=interest_confirmation]
 - If they say no or not them, say: "No problem, thanks for your time. Have a great day." then add: [TOOL:endCall]
-- If they ask a question, answer briefly in one sentence, then repeat: "Are you still looking for a loan today?"`,
+- If they ask a question, answer briefly in one sentence, then repeat: "I called today because you had submitted an online request regarding a loan, and I wanted to check whether you're still interested."`,
 
       interest_confirmation: `The customer just answered "Are you still looking for a loan today?".
 - If they say yes, interested, or sure, say: "Great, what loan amount are you looking for today?" and add: [STATE:currentStage=loan_amount][STATE:interest_confirmed=true]

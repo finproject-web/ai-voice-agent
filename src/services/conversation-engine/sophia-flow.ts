@@ -196,7 +196,7 @@ export function stageQuestion(stage: string, context: ConversationContext): stri
   switch (stage) {
     case 'greeting':
     case 'identity_confirmation':
-      return `Can I talk to ${name}?`;
+      return `Hi ${name}, this is Sophia from Up Start Loans. How are you doing today?`;
     case 'interest_confirmation':
       return 'Are you still looking for a loan today?';
     case 'loan_amount':
@@ -243,7 +243,7 @@ export function handleDeterministicStage(
       }
       if (isAffirmative(userMessage)) {
         return {
-          spokenText: "Great. I'm calling because you recently applied for a loan and your application has been pre-qualified. Are you still looking for a loan today?",
+          spokenText: "I'm glad to hear that. I called today because you had submitted an online request regarding a loan, and I wanted to check whether you're still interested.",
           toolCalls: [],
           stateUpdates: { currentStage: 'interest_confirmation', identity_confirmed: true },
         };

@@ -219,7 +219,7 @@ export class VoiceAgentService {
       }
 
       const name = context.customerName || 'the customer';
-      const greetingText = `Hello, this is Sofia from Upstart Loans. Can I talk to ${name}?`;
+      const greetingText = `Hi ${name}, this is Sophia from Up Start Loans. How are you doing today?`;
 
       // Seed the conversation history and advance to identity confirmation without waiting for an LLM
       context.messages.push({ role: 'user', content: '', timestamp: new Date() });
@@ -227,7 +227,7 @@ export class VoiceAgentService {
       context.state = {
         ...context.state,
         currentStage: 'identity_confirmation',
-        last_question: 'Can I talk to you?',
+        last_question: 'How are you doing today?',
         greeted: true,
       };
       context.lastActivity = new Date();
