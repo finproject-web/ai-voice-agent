@@ -155,12 +155,30 @@ export const APPLICATION_STEP_SCRIPTS: Record<number, string> = {
 export const TOTAL_APPLICATION_STEPS = Object.keys(APPLICATION_STEP_SCRIPTS).length;
 
 const PROGRESS_WORDS = ['done', 'next', 'okay', 'ok', 'got it', 'opened', 'i see it', "i'm there", 'ready', 'moved on', 'finished', 'yes', 'yeah'];
+const STEP_DONE_WORDS = ['done', 'finished', 'completed', 'selected', 'entered', 'filled', 'filled in', 'submitted', 'signed', 'next'];
 const TRANSFER_WORDS = ['human', 'real person', 'live agent', 'speak to a person', 'talk to a person', 'representative', 'transfer me'];
 const END_WORDS = ['bye', 'goodbye', 'hang up', "that's all", 'no thanks', "i'm done", 'stop calling'];
 const HESITANT_WORDS = ['nervous', 'scared', 'not comfortable', 'unsafe', "don't trust", 'worried', 'uncomfortable'];
 const CONFUSED_WORDS = ['confused', "don't know", 'not sure', 'help me', "don't understand", 'what do i do', 'i need help'];
 // Only treat these explicit phrases as confirmation the customer is actually on the website.
 const WEBSITE_OPENED_WORDS = ['opened', 'i see it', 'i see the', 'i can see it', "i'm there", 'i am there', 'it loaded', 'page loaded', 'loaded', 'website open', 'site open', 'app open'];
+
+// Screen-aware application step detection. Returns the 1-11 step number the customer is describing.
+function detectApplicationStep(text: string): number | null {
+  const lower = text.toLowerCase();
+  if (lower.includes('select your loan agent') || (lower.includes('loan agent') && lower.includes('select')) || (lower.includes('agent') && !lower.includes('agency'))) return 1;
+  if (lower.includes('loan amount') || lower.includes('amount')) return 2;
+  if (lower.includes('loan term') || lower.includes('term') || lower.includes('how long')) return 3;
+  if (lower.includes('loan purpose') || lower.includes('purpose')) return 4;
+  if (lower.includes('personal information') || lower.includes('first name') || lower.includes('last name') || lower.includes('home address') || lower.includes('date of birth') || lower.includes('ssn') || lower.includes('social security')) return 5;
+  if (lower.includes('bank information') || lower.includes('routing number') || lower.includes('account number') || lower.includes('bank name')) return 6;
+  if (lower.includes('bank verification') || lower.includes('verification') || lower.includes('bank login')) return 7;
+  if (lower.includes('loan agreement') || lower.includes('agreement')) return 8;
+  if (lower.includes('digital agreement') || lower.includes('digital')) return 9;
+  if (lower.includes('signature') || lower.includes('sign')) return 10;
+  if (lower.includes('dashboard password') || lower.includes('password') || lower.includes('dashboard')) return 11;
+  return null;
+}
 // Phrases meaning the customer did not receive or cannot find the email.
 // STT may drop apostrophes, so include both contracted and uncontracted forms.
 const EMAIL_NOT_RECEIVED_WORDS = [
@@ -202,15 +220,19 @@ export function stageQuestion(stage: string, context: ConversationContext): stri
     case 'loan_amount':
       return 'What loan amount are you looking for today?';
     case 'email_confirmation':
-      return hasEmail
-        ? `Is ${email} still the correct email?`
-        : 'Could you provide your best email address so I can send you the application link?';
+      return hasEmail && !context.state?.email_sent
+        ? `Perfect. I have your email as ${email}. If I send you the application now, do you have a few minutes to complete it with me?`
+        : hasEmail
+          ? `Do you see the website link?`
+          : 'Could you provide your best email address so I can send you the application link?';
     case 'application_guidance': {
-      const step = Number(context.state?.current_application_step) || 0;
-      if (!context.state?.website_opened) {
-        return 'Please open the email and let me know once the website opens.';
-      }
-      return APPLICATION_STEP_SCRIPTS[step] || APPLICATION_STEP_SCRIPTS[1];
+      const subStep = context.state?.current_application_step;
+      if (subStep === 'email_link') return 'You should receive an email from Up Start Loans. Do you see the website link?';
+      if (subStep === 'website_open') return "Perfect. Please open the website. Once it's open, let me know. I'll stay right here with you.";
+      if (subStep === 'awaiting_screen' || subStep === undefined || subStep === '0') return 'Great. What do you see on the screen?';
+      const step = Number(subStep);
+      if (step >= 1 && step <= TOTAL_APPLICATION_STEPS) return APPLICATION_STEP_SCRIPTS[step];
+      return 'Great. What do you see on the screen?';
     }
     default:
       return '';
@@ -273,31 +295,31 @@ export function handleDeterministicStage(
       const amount = extractLoanAmount(userMessage);
       if (amount !== null) {
         const spokenText = hasEmail
-          ? `Got it. I have your email as ${email}. Is that still correct?`
+          ? `Perfect. I have your email as ${email}. If I send you the application now, do you have a few minutes to complete it with me?`
           : 'Got it. Could you provide your best email address so I can send you the application link?';
         return {
           spokenText,
           toolCalls: [],
-          stateUpdates: { currentStage: 'email_confirmation', loan_amount: amount },
+          stateUpdates: { currentStage: 'email_confirmation', loan_amount: amount, ...(hasEmail ? { email_confirmed: true } : {}) },
         };
       }
       return null;
     }
 
     case 'email_confirmation': {
-      if (hasEmail && isAffirmative(userMessage) && !extractEmail(userMessage)) {
+      if (hasEmail && (isAffirmative(userMessage) || PROGRESS_WORDS.some((w) => userMessage.toLowerCase().includes(w))) && !extractEmail(userMessage)) {
         return {
-          spokenText: "Great, I'm sending the application email now. Please open the email and let me know once the website opens.",
+          spokenText: "Perfect. I've just sent it. You should receive an email from Up Start Loans. Do you see the website link?",
           toolCalls: [{ name: 'sendLoanEmail', parameters: { email } }],
-          stateUpdates: { email_confirmed: true, email_sent: true, application_started: true, currentStage: 'application_guidance' },
+          stateUpdates: { email_confirmed: true, email_sent: true, application_started: true, currentStage: 'application_guidance', current_application_step: 'email_link' },
         };
       }
       const newEmail = extractEmail(userMessage);
       if (newEmail) {
         return {
-          spokenText: "Thanks, I'll send it to that email now. Please open the email and let me know once the website opens.",
+          spokenText: "Perfect. I've just sent it. You should receive an email from Up Start Loans. Do you see the website link?",
           toolCalls: [{ name: 'sendLoanEmail', parameters: { email: newEmail } }],
-          stateUpdates: { email_confirmed: true, email_sent: true, application_started: true, currentStage: 'application_guidance', customerEmail: newEmail },
+          stateUpdates: { email_confirmed: true, email_sent: true, application_started: true, currentStage: 'application_guidance', current_application_step: 'email_link', customerEmail: newEmail },
         };
       }
       if (isNegative(userMessage)) {
@@ -336,25 +358,69 @@ export function handleDeterministicStage(
         return {
           spokenText: "I apologize, let me resend it right now. Please check your inbox and spam folder. Let me know once the website opens.",
           toolCalls: [{ name: 'sendLoanEmail', parameters: { email: context.customerEmail } }],
-          stateUpdates: { website_opened: false, current_application_step: 0 },
+          stateUpdates: { website_opened: false, current_application_step: 'email_link' },
         };
       }
 
-      // Gate: the customer must confirm the website/application is open
-      // before we start walking through numbered steps.
-      if (!state.website_opened) {
-        if (WEBSITE_OPENED_WORDS.some((w) => lower.includes(w))) {
+      const subStep = state.current_application_step || 'email_link';
+
+      // Phase 1: the customer needs to see the website link in the email
+      if (subStep === 'email_link') {
+        if (YES_WORDS.some((w) => lower.includes(w)) || PROGRESS_WORDS.some((w) => lower.includes(w)) || lower.includes('see') || lower.includes('got it')) {
           return {
-            spokenText: `Great. ${APPLICATION_STEP_SCRIPTS[1]}`,
+            spokenText: "Perfect. Please open the website. Once it's open, let me know. I'll stay right here with you.",
             toolCalls: [],
-            stateUpdates: { website_opened: true, current_application_step: 1, application_started: true },
+            stateUpdates: { current_application_step: 'website_open' },
           };
         }
-        return null;
+        return {
+          spokenText: 'Do you see the website link?',
+          toolCalls: [],
+          stateUpdates: {},
+        };
+      }
+
+      // Phase 2: the customer needs to open the website
+      if (subStep === 'website_open') {
+        if (WEBSITE_OPENED_WORDS.some((w) => lower.includes(w))) {
+          return {
+            spokenText: 'Great. What do you see on the screen?',
+            toolCalls: [],
+            stateUpdates: { website_opened: true, current_application_step: 'awaiting_screen', application_started: true },
+          };
+        }
+        return {
+          spokenText: "Perfect. Please open the website. Once it's open, let me know. I'll stay right here with you.",
+          toolCalls: [],
+          stateUpdates: {},
+        };
+      }
+
+      // Phase 3: screen-aware guidance one step at a time
+      const currentStep = Number(subStep);
+      const isAwaitingScreen = isNaN(currentStep) || currentStep <= 0;
+      const detectedStep = detectApplicationStep(userMessage);
+
+      // Customer is indicating a step is complete
+      const stepDone = STEP_DONE_WORDS.some((w) => lower.includes(w));
+      if (!isAwaitingScreen && stepDone) {
+        return {
+          spokenText: 'Perfect. What do you see next?',
+          toolCalls: [],
+          stateUpdates: { current_application_step: 'awaiting_screen' },
+        };
+      }
+
+      // Customer describes the current or a new screen, or is ahead
+      if (detectedStep) {
+        return {
+          spokenText: `Perfect. ${APPLICATION_STEP_SCRIPTS[detectedStep]}`,
+          toolCalls: [],
+          stateUpdates: { current_application_step: String(detectedStep) },
+        };
       }
 
       const mode = detectSupportMode(userMessage);
-
       if (mode === 'HESITANT') {
         return {
           spokenText: "I completely understand your concern. Take your time, I'm here to explain anything that feels unclear.",
@@ -363,25 +429,19 @@ export function handleDeterministicStage(
         };
       }
 
-      const currentStep = Number(state.current_application_step) || 0;
-      if (currentStep >= TOTAL_APPLICATION_STEPS) {
-        return null;
-      }
-
-      if (!looksLikeQuestion(userMessage) && (PROGRESS_WORDS.some((w) => lower.includes(w)) || mode === 'FULL_GUIDANCE')) {
-        const nextStep = currentStep === 0 ? 1 : Math.min(currentStep + 1, TOTAL_APPLICATION_STEPS);
+      if (mode === 'FULL_GUIDANCE') {
         return {
-          spokenText: APPLICATION_STEP_SCRIPTS[nextStep],
+          spokenText: 'No problem. What do you see on the screen right now?',
           toolCalls: [],
-          stateUpdates: {
-            current_application_step: nextStep,
-            customer_support_mode: mode || state.customer_support_mode || 'SELF_SERVICE',
-            ...(nextStep >= TOTAL_APPLICATION_STEPS ? { application_completed: true } : {}),
-          },
+          stateUpdates: { customer_support_mode: 'FULL_GUIDANCE' },
         };
       }
 
-      return null;
+      return {
+        spokenText: 'What do you see on the screen?',
+        toolCalls: [],
+        stateUpdates: {},
+      };
     }
 
     default:

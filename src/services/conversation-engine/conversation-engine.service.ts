@@ -218,17 +218,23 @@ After the greeting, add: [STATE:currentStage=identity_confirmation]`,
 - If they ask a question, answer briefly in one sentence, then repeat: "Are you still looking for a loan today?"`,
 
       loan_amount: `The customer is interested. Ask for the loan amount.
-- If they give a number, say: "Got it. ${hasEmail ? `I have your email as ${email}. Is that still correct?` : 'Could you provide your best email address so I can send you the application link?'}" and add: [STATE:currentStage=email_confirmation][STATE:loan_amount=<amount>]
+- If they give a number, say: "Perfect. I have your email as ${email}. If I send you the application now, do you have a few minutes to complete it with me?" and add: [STATE:currentStage=email_confirmation][STATE:loan_amount=<amount>][STATE:email_confirmed=true]
+- If they do not have an email on file, ask: "Could you provide your best email address so I can send you the application link?" and add: [STATE:currentStage=email_confirmation]
 - If they ask a question, answer briefly, then ask: "What loan amount are you looking for today?"`,
 
-      email_confirmation: `The customer gave a loan amount. Now confirm or collect the email.
-- If the email is correct, say: "Great, I'm sending the application email now." then add: [TOOL:sendLoanEmail|email=${email}][STATE:email_confirmed=true][STATE:email_sent=true][STATE:currentStage=application_guidance]
-- If they give a different email, say: "Thanks, I'll send it to that email now." then add: [TOOL:sendLoanEmail|email=<new_email>][STATE:email_confirmed=true][STATE:email_sent=true][STATE:currentStage=application_guidance]
+      email_confirmation: `The customer gave a loan amount and the email is on file (or was just collected). Confirm they have a few minutes before sending.
+- If they agree (yes, sure, ok, a few minutes, etc.), send the email by adding: [TOOL:sendLoanEmail|email=${email}] Then say: "Perfect. I\'ve just sent it. You should receive an email from Up Start Loans. Do you see the website link?" and add: [STATE:email_sent=true][STATE:currentStage=application_guidance][STATE:current_application_step=email_link]
+- If they give a different email, say: "Thanks, I'll send it to that email now." then add: [TOOL:sendLoanEmail|email=<new_email>][STATE:email_sent=true][STATE:currentStage=application_guidance][STATE:current_application_step=email_link][STATE:customerEmail=<new_email>]
 - If they refuse to provide an email, say: "No problem, just let me know if you'd like to continue."`,
 
-      application_guidance: `The application email has been sent. The customer is viewing the application on their phone.
-- Ask: "Please open the email and tap the application link. Let me know once the application screen opens."
-- Then guide them ONE screen at a time using the application steps reference. Be concise.
+      application_guidance: `The application email has been sent. Guide the customer through the website ONE screen at a time. NEVER give more than one instruction per turn. NEVER assume you can see the screen.
+
+Current application sub-step: ${state.current_application_step || 'email_link'}
+
+- If current_application_step is email_link: ask "Do you see the website link?" On yes/see, say "Perfect. Please open the website. Once it\'s open, let me know. I\'ll stay right here with you." and add: [STATE:current_application_step=website_open]
+- If current_application_step is website_open: on "it\'s open", say "Great. What do you see on the screen?" and add: [STATE:website_opened=true][STATE:current_application_step=awaiting_screen]
+- If current_application_step is awaiting_screen: ask "What do you see on the screen?" Based on their answer, give ONLY the matching one-step instruction from the application steps reference, then stop and wait.
+- If the customer says they already completed a step, acknowledge and ask "What do you see next?" then add: [STATE:current_application_step=awaiting_screen]
 - If they want a human, say: "Sure, one moment." then add: [TOOL:transferCall|to=4702063218]
 - If they want to end, say: "No problem, have a great day." then add: [TOOL:endCall]`,
 
