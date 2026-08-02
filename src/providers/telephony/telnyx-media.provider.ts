@@ -317,7 +317,7 @@ class TelnyxMediaProvider {
       // whenever the event loop is briefly busy (STT/TTS/HTTP work happening
       // concurrently), causing frames to bunch up and arrive late. Anchoring
       // to wall-clock time keeps playback paced at a steady 20ms cadence.
-      const startTime = Date.now();
+      let startTime = Date.now();
       let chunkCount = 0;
       let actualSendTimeSum = 0;
       let prevActualSendTime: number | null = null;
@@ -325,10 +325,15 @@ class TelnyxMediaProvider {
       let maxBuffered = 0;
 
       for (let frameIndex = 0; frameIndex < totalChunks; frameIndex++) {
+        const now = Date.now();
         const expectedSendTime = startTime + frameIndex * frameIntervalMs;
-        let waitMs = expectedSendTime - Date.now();
+        let waitMs = expectedSendTime - now;
         if (waitMs < 0) {
-          waitMs = 1; // prevent catch-up bursts; never send multiple overdue frames immediately
+          // Do not send overdue frames in a 1 ms burst. Re-anchor the schedule
+          // so this frame goes out one interval from now and playback resumes
+          // at the normal 20 ms cadence.
+          startTime = now + frameIntervalMs - frameIndex * frameIntervalMs;
+          waitMs = frameIntervalMs;
         }
         await new Promise((resolve) => setTimeout(resolve, waitMs));
 

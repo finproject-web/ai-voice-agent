@@ -2,7 +2,16 @@ import logger from '../config/logger';
 
 const BIAS = 0x84;
 const CLIP = 0x7fff;
-const SEG_UEND = [0x3f, 0x7f, 0xff, 0x1ff, 0x3ff, 0x7ff, 0xfff, 0x1fff];
+const SEG_UEND = [
+  0xff,
+  0x1ff,
+  0x3ff,
+  0x7ff,
+  0xfff,
+  0x1fff,
+  0x3fff,
+  0x7fff,
+];
 
 function encodeLinearToMuLaw(pcm: number): number {
   // Handle -32768 by changing to -32767
@@ -27,7 +36,7 @@ function encodeLinearToMuLaw(pcm: number): number {
     pcm = CLIP;
   }
 
-  const shifted = pcm >> 4;
+  const shifted = pcm;
   let seg = 0;
   while (seg < 8 && shifted > SEG_UEND[seg]) {
     seg++;
