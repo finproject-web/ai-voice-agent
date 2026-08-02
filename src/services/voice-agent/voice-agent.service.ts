@@ -250,9 +250,11 @@ export class VoiceAgentService {
         resampledSampleRateHz: 8000,
       });
       const telnyxAudio = this.convertPcmToMulaw(ttsAudio.audioBuffer);
-      logger.info('=== GREETING PCMU AFTER CONVERSION ===', { sessionId, pcmuLength: telnyxAudio.length, first10Bytes: telnyxAudio.slice(0, 10).toString('hex'), timestamp: new Date().toISOString() });
-      logger.info('=== TTS CONVERTED TO TELNYX FORMAT ===', { sessionId, originalSize: ttsAudio.audioBuffer.length, convertedSize: telnyxAudio.length, timestamp: new Date().toISOString() });
-      return telnyxAudio;
+      const preRoll = Buffer.alloc(160, 0xff); // 20 ms of μ-law silence so the Telnyx stream settles before the voice
+      const telnyxAudioWithPreRoll = Buffer.concat([preRoll, telnyxAudio]);
+      logger.info('=== GREETING PCMU AFTER CONVERSION ===', { sessionId, pcmuLength: telnyxAudioWithPreRoll.length, first10Bytes: telnyxAudioWithPreRoll.slice(0, 10).toString('hex'), timestamp: new Date().toISOString() });
+      logger.info('=== TTS CONVERTED TO TELNYX FORMAT ===', { sessionId, originalSize: ttsAudio.audioBuffer.length, convertedSize: telnyxAudioWithPreRoll.length, timestamp: new Date().toISOString() });
+      return telnyxAudioWithPreRoll;
     } catch (error: any) {
       logger.error('=== GREETING GENERATION FAILED ===', { sessionId, error: error?.message || error });
       throw error;
