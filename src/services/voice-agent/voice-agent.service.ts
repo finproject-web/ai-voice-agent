@@ -362,6 +362,10 @@ export class VoiceAgentService {
           return;
         }
 
+        // Claim the speaking lock immediately so the next audio packet cannot
+        // start another STT/LLM pass while we are still handling this one.
+        isSpeaking = true;
+
         logger.info('=== MEDIA PACKET RECEIVED (from makeCall) ===', { 
           callId, sessionId,
           packetSize: audio.length 
@@ -373,8 +377,6 @@ export class VoiceAgentService {
           
           // Only respond if transcript has meaningful content (more than 2 chars)
           if (transcript.transcript && transcript.transcript.trim().length > 2) {
-            isSpeaking = true;
-
             const response = await this.conversationEngine.processMessage(sessionId, transcript.transcript);
             this.syncAgentState(sessionId);
             logger.info('=== AI RESPONSE ===', { callId, response: response.content });
@@ -422,9 +424,15 @@ export class VoiceAgentService {
             isSpeaking = false;
             lastResponseTime = Date.now();
             logger.info('=== AI DONE SPEAKING, LISTENING AGAIN ===', { callId });
+          } else {
+            // No usable speech; release the lock and refresh the echo guard
+            isSpeaking = false;
+            lastResponseTime = Date.now();
+            logger.info('=== TRANSCRIPT TOO SHORT, SKIPPING ===', { callId, transcript: transcript.transcript });
           }
         } catch (error) {
           isSpeaking = false;
+          lastResponseTime = Date.now();
           logger.error('=== AUDIO PROCESSING FAILED ===', { callId, error });
         }
       });
