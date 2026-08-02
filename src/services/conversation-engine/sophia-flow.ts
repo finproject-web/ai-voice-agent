@@ -160,6 +160,7 @@ const TRANSFER_WORDS = ['human', 'real person', 'live agent', 'speak to a person
 const END_WORDS = ['bye', 'goodbye', 'hang up', "that's all", 'no thanks', "i'm done", 'stop calling'];
 const HESITANT_WORDS = ['nervous', 'scared', 'not comfortable', 'unsafe', "don't trust", 'worried', 'uncomfortable'];
 const CONFUSED_WORDS = ['confused', "don't know", 'not sure', 'help me', "don't understand", 'what do i do', 'i need help'];
+const WAIT_WORDS = ['wait', 'hold on', 'hang on', 'one second', 'one moment', 'let me check', 'checking', 'not yet', 'a moment', 'give me a second'];
 // Only treat these explicit phrases as confirmation the customer is actually on the website.
 const WEBSITE_OPENED_WORDS = ['opened', 'i see it', 'i see the', 'i can see it', "i'm there", 'i am there', 'it loaded', 'page loaded', 'loaded', 'website open', 'site open', 'app open'];
 
@@ -213,8 +214,9 @@ export function stageQuestion(stage: string, context: ConversationContext): stri
 
   switch (stage) {
     case 'greeting':
-    case 'identity_confirmation':
       return `Hi ${name}, this is Sophia from Up Start Loans. How are you doing today?`;
+    case 'identity_confirmation':
+      return "I'm calling because you had submitted an online loan request with us. I wanted to know if you are still interested.";
     case 'interest_confirmation':
       return 'Are you still looking for a loan today?';
     case 'loan_amount':
@@ -348,6 +350,14 @@ export function handleDeterministicStage(
         return {
           spokenText: 'No problem, have a great day.',
           toolCalls: [{ name: 'endCall', parameters: {} }],
+          stateUpdates: {},
+        };
+      }
+
+      if (WAIT_WORDS.some((w) => lower.includes(w))) {
+        return {
+          spokenText: "No problem, take your time. Let me know when you're ready.",
+          toolCalls: [],
           stateUpdates: {},
         };
       }
