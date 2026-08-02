@@ -285,7 +285,7 @@ class TelnyxMediaProvider {
    */
   async sendAudio(callId: string, audioBuffer: Buffer): Promise<void> {
     const ws = this.connections.get(callId);
-    
+
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       logger.error('=== CANNOT SEND AUDIO - NO CONNECTION ===', { callId });
       return;
@@ -296,30 +296,43 @@ class TelnyxMediaProvider {
       // 20 ms PCMU/mu-law frames (160 bytes at 8 kHz) as base64 payloads.
       const chunkSize = 160;
       const frameIntervalMs = 20;
-      let chunkCount = 0;
-      const totalChunks = Math.ceil(audioBuffer.length / chunkSize);
+      const silenceByte = 0xff; // μ-law zero
+      const padLength = Math.ceil(audioBuffer.length / chunkSize) * chunkSize;
+      const paddedAudio = Buffer.alloc(padLength, silenceByte);
+      audioBuffer.copy(paddedAudio);
+      const totalChunks = Math.ceil(padLength / chunkSize);
+
+      logger.info('=== PREPARING AUDIO FOR TELNYX ===', {
+        callId,
+        originalLength: audioBuffer.length,
+        paddedLength: padLength,
+        totalChunks,
+        frameBytes: chunkSize,
+        frameIntervalMs,
+      });
 
       // Drift-corrected pacing: schedule each frame against an absolute
       // start-time clock (startTime + frameIndex * 20ms) instead of chaining
       // relative setTimeout(20ms) calls. Relative timers accumulate drift
       // whenever the event loop is briefly busy (STT/TTS/HTTP work happening
-      // concurrently), causing frames to bunch up and arrive late, which
-      // Telnyx's jitter buffer perceives as choppy/breaking audio. Anchoring
-      // to wall-clock time keeps playback paced at a steady 20ms cadence
-      // even if individual iterations run late.
+      // concurrently), causing frames to bunch up and arrive late. Anchoring
+      // to wall-clock time keeps playback paced at a steady 20ms cadence.
       const startTime = Date.now();
+      let chunkCount = 0;
       let actualSendTimeSum = 0;
       let prevActualSendTime: number | null = null;
       let intervalSampleCount = 0;
+      let maxBuffered = 0;
 
-      for (let offset = 0, frameIndex = 0; offset < audioBuffer.length; offset += chunkSize, frameIndex++) {
+      for (let frameIndex = 0; frameIndex < totalChunks; frameIndex++) {
         const expectedSendTime = startTime + frameIndex * frameIntervalMs;
-        const waitMs = expectedSendTime - Date.now();
-        if (waitMs > 0) {
-          await new Promise((resolve) => setTimeout(resolve, waitMs));
+        let waitMs = expectedSendTime - Date.now();
+        if (waitMs < 0) {
+          waitMs = 1; // prevent catch-up bursts; never send multiple overdue frames immediately
         }
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
 
-        if (!ws || ws.readyState !== WebSocket.OPEN) {
+        if (ws.readyState !== WebSocket.OPEN) {
           logger.warn('=== CONNECTION CLOSED MID-STREAM - ABORTING REMAINING FRAMES ===', {
             callId,
             chunksSent: chunkCount,
@@ -328,7 +341,19 @@ class TelnyxMediaProvider {
           break;
         }
 
-        const chunk = audioBuffer.slice(offset, offset + chunkSize);
+        // Small backpressure loop: wait until the WebSocket send queue drains.
+        while (ws.bufferedAmount > 640) {
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          if (ws.readyState !== WebSocket.OPEN) {
+            return;
+          }
+        }
+        if (ws.bufferedAmount > maxBuffered) {
+          maxBuffered = ws.bufferedAmount;
+        }
+
+        const offset = frameIndex * chunkSize;
+        const chunk = paddedAudio.slice(offset, offset + chunkSize);
         const base64Audio = chunk.toString('base64');
 
         const mediaFrame = {
@@ -354,16 +379,19 @@ class TelnyxMediaProvider {
       const avgSendIntervalMs = intervalSampleCount > 0 ? actualSendTimeSum / intervalSampleCount : 0;
       const totalElapsedMs = Date.now() - startTime;
 
-      logger.info('=== SENDING AUDIO TO TELNYX ===', { 
-        callId, 
-        audioSize: audioBuffer.length,
+      logger.info('=== SENDING AUDIO TO TELNYX ===', {
+        callId,
+        originalLength: audioBuffer.length,
+        paddedLength: padLength,
         chunks: chunkCount,
         packetSizeBytes: chunkSize,
         targetPacketIntervalMs: frameIntervalMs,
         avgActualSendIntervalMs: Math.round(avgSendIntervalMs * 100) / 100,
         avgSendLatencyMs: Math.round((avgSendIntervalMs - frameIntervalMs) * 100) / 100,
         totalElapsedMs,
-        expectedElapsedMs: chunkCount * frameIntervalMs
+        expectedElapsedMs: chunkCount * frameIntervalMs,
+        maxBuffered,
+        finalFramePadded: padLength > audioBuffer.length,
       });
     } catch (error) {
       logger.error('=== FAILED TO SEND AUDIO TO TELNYX ===', { callId, error });
