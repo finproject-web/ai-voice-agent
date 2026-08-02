@@ -249,7 +249,29 @@ export class VoiceAgentService {
         pcmSampleCount: ttsAudio.audioBuffer.length / 2,
         resampledSampleRateHz: 8000,
       });
-      const telnyxAudio = this.convertPcmToMulaw(ttsAudio.audioBuffer);
+      // Normalize the greeting so the opening words are as loud as the later responses
+      const sampleCount = ttsAudio.audioBuffer.length / 2;
+      let maxAbs = 0;
+      let sumAbs = 0;
+      for (let i = 0; i < sampleCount; i++) {
+        const s = ttsAudio.audioBuffer.readInt16LE(i * 2);
+        const a = Math.abs(s);
+        if (a > maxAbs) maxAbs = a;
+        sumAbs += a;
+      }
+      const avgAbs = Math.round(sumAbs / sampleCount);
+      const targetPeak = 24000; // leave ~ -3 dBFS headroom
+      const maxGain = 3;        // do not boost more than +9.5 dB to avoid noise
+      const gain = Math.min(maxGain, maxAbs > 0 ? targetPeak / maxAbs : 1);
+      const scaledBuffer = Buffer.alloc(ttsAudio.audioBuffer.length);
+      for (let i = 0; i < sampleCount; i++) {
+        const s = ttsAudio.audioBuffer.readInt16LE(i * 2);
+        const scaled = Math.max(-32768, Math.min(32767, Math.round(s * gain)));
+        scaledBuffer.writeInt16LE(scaled, i * 2);
+      }
+      logger.info('=== GREETING PCM NORMALIZED ===', { sessionId, maxAbs, avgAbs, gain: Math.round(gain * 1000) / 1000, targetPeak });
+
+      const telnyxAudio = this.convertPcmToMulaw(scaledBuffer);
       const preRoll = Buffer.alloc(160, 0xff); // 20 ms of μ-law silence so the Telnyx stream settles before the voice
       const telnyxAudioWithPreRoll = Buffer.concat([preRoll, telnyxAudio]);
       logger.info('=== GREETING PCMU AFTER CONVERSION ===', { sessionId, pcmuLength: telnyxAudioWithPreRoll.length, first10Bytes: telnyxAudioWithPreRoll.slice(0, 10).toString('hex'), timestamp: new Date().toISOString() });
