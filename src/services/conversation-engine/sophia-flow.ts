@@ -214,7 +214,6 @@ export function stageQuestion(stage: string, context: ConversationContext): stri
 
   switch (stage) {
     case 'greeting':
-      return `Hi ${name}, this is Sophia from Up Start Loans. How are you doing today?`;
     case 'identity_confirmation':
       return "I'm calling because you had submitted an online loan request with us. I wanted to know if you are still interested.";
     case 'interest_confirmation':

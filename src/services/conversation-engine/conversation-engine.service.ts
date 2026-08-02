@@ -125,8 +125,8 @@ STRICT OUTPUT FORMAT:
 Return only the spoken text the customer will hear.
 Place any state or tool markers on their own lines AFTER the spoken text, like this:
 
-Hi Paul, this is Sophia from Up Start Loans. Am I speaking with Paul?
-[STATE:currentStage=identity_confirmation]
+I called today because you had submitted an online request regarding a loan, and I wanted to check whether you're still interested.
+[STATE:currentStage=interest_confirmation]
 
 No extra commentary. No explanations. No bullet points. Only the spoken text plus markers.`;
   }
@@ -205,7 +205,7 @@ You cannot change any of the values above. Only sophia-flow.ts (the backend) upd
     const instructions: Record<string, string> = {
       greeting: `The customer has already been greeted. Do NOT say the greeting again. If they have not spoken yet, simply stop and wait. If they have responded, use the identity_confirmation instructions.`,
 
-      identity_confirmation: `The customer just responded to the greeting "Hi ${name}, this is Sophia from Up Start Loans. How are you doing today?".
+      identity_confirmation: `The customer has already heard the opening greeting. Do NOT repeat it.
 - If they respond with any greeting or positively (good, fine, great, yes, etc.), say: "I'm glad to hear that. I called today because you had submitted an online request regarding a loan, and I wanted to check whether you're still interested." and add: [STATE:currentStage=interest_confirmation]
 - If they say no or not them, say: "No problem, thanks for your time. Have a great day." then add: [TOOL:endCall]
 - If they ask a question, answer briefly in one sentence, then repeat: "I called today because you had submitted an online request regarding a loan, and I wanted to check whether you're still interested."`,
