@@ -221,17 +221,16 @@ export class VoiceAgentService {
       const name = context.customerName || 'the customer';
       const greetingText = `Hi ${name}, this is Sophia from Up Start Loans. How are you doing today?`;
 
-      // Seed the conversation history and advance to identity confirmation without waiting for an LLM
-      context.messages.push({ role: 'user', content: '', timestamp: new Date() });
-      context.messages.push({ role: 'assistant', content: greetingText, timestamp: new Date() });
+      // Advance to identity confirmation without waiting for an LLM.
+      // Do not put the hardcoded greeting into the message history;
+      // that makes the model repeat the opening on the next turn.
       context.state = {
         ...context.state,
         currentStage: 'identity_confirmation',
-        last_question: 'How are you doing today?',
         greeted: true,
       };
       context.lastActivity = new Date();
-      this.conversationEngine.updateContext(sessionId, { messages: context.messages, state: context.state, lastActivity: new Date() });
+      this.conversationEngine.updateContext(sessionId, { state: context.state, lastActivity: new Date() });
 
       logger.info('=== GREETING TEXT ===', { sessionId, text: greetingText, timestamp: new Date().toISOString() });
       logger.info('=== TTS STARTED ===', { sessionId, timestamp: new Date().toISOString() });
@@ -463,6 +462,9 @@ export class VoiceAgentService {
           agentState.callId = mediaCallId;
           agentState.streamId = greetingStreamId;
           this.agents.set(sessionId, agentState);
+          // Hold the speaking lock while the greeting plays so the agent does not
+          // try to process the greeting's own echo as customer speech.
+          isSpeaking = true;
           await telnyxMediaProvider.sendAudio(mediaCallId, audioBuffer);
 
           const latencyMs = agentState.callAnsweredAt ? Date.now() - agentState.callAnsweredAt : -1;
@@ -474,7 +476,8 @@ export class VoiceAgentService {
               currentState.greetingFinished = true;
               this.agents.set(sessionId, currentState);
             }
-            // Start the echo guard now so the tail of the greeting does not loop
+            // Greeting is done; release the lock and start the echo guard
+            isSpeaking = false;
             lastResponseTime = Date.now();
             logger.info('=== GREETING FINISHED, LISTENING ENABLED ===', { sessionId, callId: mediaCallId, greetingDurationMs });
           }, greetingDurationMs + 300);
